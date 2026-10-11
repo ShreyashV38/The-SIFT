@@ -1,16 +1,16 @@
 # SIFT — How It Works (living document)
-Last updated: 2026-10-11 | Current phase: 0 | Environment: local
+Last updated: 2026-10-11 | Current phase: 2 | Environment: local
 
 ## 0. Status board
 | Phase | Step | Status | Date | Commit |
 |-------|------|--------|------|--------|
 | 0 | 0.1 Check host | done | 2026-10-11 | phase-0.step-1 |
-| 0 | 0.2 Install/verify tools | doing | 2026-10-11 | — |
+| 0 | 0.2 Install/verify tools | done | 2026-10-11 | phase-0.step-3 |
 | 0 | 0.3 Create repo skeleton | done | 2026-10-11 | phase-0.step-3 |
 | 0 | 0.4 Create HOW_IT_WORKS.md | done | 2026-10-11 | phase-0.step-3 |
 | 0 | 0.5 Create demo-script.md | done | 2026-10-11 | phase-0.step-3 |
-| 1 | — | todo | — | — |
-| 2 | — | todo | — | — |
+| 1 | 1.1–1.4 Cluster + DNS + Ingress | done | 2026-10-11 | phase-1.step-4 |
+| 2 | — | doing | 2026-10-11 | — |
 | 3 | — | todo | — | — |
 | 4 | — | todo | — | — |
 | 5 | — | todo | — | — |
@@ -61,13 +61,13 @@ flowchart TB
 | Host OS | Windows 10/11 | Dev machine | User's OS |
 | RAM | 21 GB | Host | Well above 16 GB recommended |
 | CPU | 6 cores / 12 threads | Host | Sufficient for 2-node cluster |
-| Docker Desktop | v29.7.2 (client) | Container runtime | Latest stable installed |
+| Docker Desktop | v29.7.2 (client+server), 10.62 GiB RAM | Container runtime | Latest stable installed |
 | Git | 2.52.0 | Version control | Latest stable |
 | Node.js | v24.18.0 LTS | Services (provisioning-api, tb-bridge, simulator) | LTS for stability |
 | kubectl | v1.36.1 | K8s management | Matches K3s API version range |
 | Helm | v4.1.4 | Chart management | Latest stable |
-| k3d | TBD (installing) | Local K3s clusters | Latest stable |
-| K3s | TBD (Phase 1) | Cluster runtime | Will pin to match k3d default |
+| k3d | v5.9.0 | Local K3s clusters | Latest stable via winget |
+| K3s | v1.35.5+k3s1 | Cluster runtime | Default for k3d v5.9.0 |
 | Magistrala | TBD (Phase 3) | Device identity + MQTT | Research gate in Phase 3 |
 | ThingsBoard CE | TBD (Phase 4) | Observability dashboard | Research gate in Phase 4 |
 | Home Assistant | TBD (Phase 5) | Tenant smart-home UI | Latest stable at time of Phase 5 |
