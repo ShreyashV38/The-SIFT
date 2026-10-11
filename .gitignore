@@ -1,0 +1,39 @@
+# Environment and secrets
+.env
+*.pem
+*.key
+kubeconfig
+kubeconfig.yaml
+
+# Node.js
+node_modules/
+npm-debug.log*
+
+# Measurements raw data
+measurements/raw/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Docker
+*.tar
+
+# Kubernetes
+*.kubeconfig
+
+# SQLite
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# Build artifacts
+dist/
+build/
