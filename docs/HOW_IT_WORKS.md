@@ -1,5 +1,5 @@
 # SIFT — How It Works (living document)
-Last updated: 2026-10-11 | Current phase: 2 | Environment: local
+Last updated: 2026-10-11 | Current phase: 3 | Environment: local
 
 ## 0. Status board
 | Phase | Step | Status | Date | Commit |
@@ -10,8 +10,8 @@ Last updated: 2026-10-11 | Current phase: 2 | Environment: local
 | 0 | 0.4 Create HOW_IT_WORKS.md | done | 2026-10-11 | phase-0.step-3 |
 | 0 | 0.5 Create demo-script.md | done | 2026-10-11 | phase-0.step-3 |
 | 1 | 1.1–1.4 Cluster + DNS + Ingress | done | 2026-10-11 | phase-1.step-4 |
-| 2 | — | doing | 2026-10-11 | — |
-| 3 | — | todo | — | — |
+| 2 | 2.1–2.4 Baseline namespaces, PriorityClass, NetPol | done | 2026-10-11 | phase-2.step-4 |
+| 3 | 3.1–3.6 Magistrala identity + MQTT | doing | 2026-10-11 | — |
 | 4 | — | todo | — | — |
 | 5 | — | todo | — | — |
 | 6 | — | todo | — | — |
@@ -90,6 +90,17 @@ flowchart TB
 - **Key config**: Listens on 80/443 via ServiceLB. Wildcard `*.localtest.me` resolves to 127.0.0.1 for local dev.
 - **Why**: Bundled with K3s, no extra install needed. Handles host-based routing and WebSocket (HA needs it).
 - **Verified by**: Phase 1
+
+### 3.2b Cluster Baseline Objects (Namespaces, PriorityClass, NetworkPolicy)
+- **Namespaces**: `platform` (Magistrala MQTT/identity), `observability` (ThingsBoard CE), `provisioning` (Provisioning API + DB). Tenant namespaces (`tenant-<slug>`) are dynamically stamped out by Helm.
+- **PriorityClass**: `identity-critical` (value `1000000`, `globalDefault: false`). Ensures Magistrala pods are never evicted in favor of tenant HA pods during memory/CPU pressure.
+- **NetworkPolicy Template** (`cluster/netpol-tenant-template.yaml`):
+  - `default-deny-all`: Denies all ingress and egress across the tenant namespace.
+  - `allow-traefik-and-api-ingress`: Ingress to HA (:8123) permitted ONLY from pods with label `app.kubernetes.io/name=traefik` in `kube-system` and provisioning API.
+  - `allow-dns-egress`: Permitted UDP/TCP 53 to CoreDNS in `kube-system`.
+  - `allow-magistrala-mqtt-egress`: Permitted egress to Magistrala MQTT adapter port (:1883) in `platform`.
+- **Enforcement Verification**: Verified K3s NetworkPolicy controller with 2 isolated namespaces. Before policy: HTTP 200. After default-deny: connection timed out (HTTP 000).
+- **Verified by**: Phase 2
 
 ### 3.3 Magistrala
 - UNVERIFIED — details to be filled in Phase 3 after research gate
@@ -246,3 +257,5 @@ EC2 bin-packing ~$7,950/mo vs Fargate ~$11,850/mo — see SIFT_BUILD_PROMPT.md s
 | 2026-10-11 | 0.3 | Created repo skeleton, .gitignore, .env.example | Initial scaffold |
 | 2026-10-11 | 0.4 | Created HOW_IT_WORKS.md with sections 0-12 | Living document required by R5, R12 |
 | 2026-10-11 | 0.5 | Created docs/demo-script.md (empty headings) | Placeholder for Phase 12 |
+| 2026-10-11 | 1.4 | k3d 2-node cluster created, node labels set, DNS + ingress verified | Local K3s cluster operational |
+| 2026-10-11 | 2.4 | Created baseline namespaces, identity-critical PriorityClass, tenant netpol template, verified K3s NetPol enforcement | Cluster baseline and zero-trust isolation proof |

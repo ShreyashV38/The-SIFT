@@ -1,0 +1,105 @@
+# Network Policy template for tenant namespaces.
+# Applied by the HA tenant Helm chart for each tenant namespace.
+#
+# Intent:
+#   1. Default deny ALL ingress + egress (zero-trust baseline)
+#   2. Allow ingress to HA :8123 ONLY from Traefik pods (kube-system)
+#      and from provisioning-api pods (provisioning namespace)
+#   3. Allow egress to kube-dns (UDP/TCP 53) for name resolution
+#   4. Allow egress to Magistrala MQTT service in platform namespace (:1883)
+#
+# Why: Without this, any pod in any namespace can reach any tenant's HA pod
+# directly. This policy ensures tenants are isolated from each other and
+# can only communicate through authorized paths (Traefik for HTTP, Magistrala
+# for MQTT). See decisions D2 and D15.
+
+# Policy 1: Default deny all
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-all
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+
+---
+# Policy 2: Allow ingress from Traefik and provisioning-api to HA :8123
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-ingress-from-traefik
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: home-assistant
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        # Traefik pods in kube-system
+        # Label verified with: kubectl get pods -n kube-system --show-labels
+        # Traefik pods have: app.kubernetes.io/name=traefik
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: traefik
+        # Provisioning API pods (for HA bootstrap / user management)
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: provisioning
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: provisioning-api
+      ports:
+        - protocol: TCP
+          port: 8123
+
+---
+# Policy 3: Allow egress to kube-dns (required for any DNS lookups)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-egress-dns
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+
+---
+# Policy 4: Allow egress to Magistrala MQTT adapter (:1883) in platform namespace
+# This is how HA receives device telemetry — it connects as an MQTT client (D3)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-egress-mqtt
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: home-assistant
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: platform
+      ports:
+        - protocol: TCP
+          port: 1883

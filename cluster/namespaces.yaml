@@ -1,0 +1,20 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: platform
+  labels:
+    app.kubernetes.io/part-of: sift
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: observability
+  labels:
+    app.kubernetes.io/part-of: sift
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: provisioning
+  labels:
+    app.kubernetes.io/part-of: sift

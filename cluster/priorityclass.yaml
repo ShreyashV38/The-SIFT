@@ -1,0 +1,11 @@
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: identity-critical
+value: 1000000
+globalDefault: false
+description: >
+  High-priority class for identity-layer components (Magistrala, Traefik).
+  When the cluster is under memory pressure, tenant HA pods will be evicted
+  before these pods. This ensures MQTT and device identity remain available
+  even during node failure scenarios (D10).
