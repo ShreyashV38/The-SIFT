@@ -1,0 +1,48 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: provisioning-api
+  namespace: provisioning
+  labels:
+    app.kubernetes.io/name: provisioning-api
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: provisioning-api-role
+rules:
+  - apiGroups: [""]
+    resources:
+      - namespaces
+      - pods
+      - services
+      - configmaps
+      - secrets
+      - serviceaccounts
+      - resourcequotas
+      - limitranges
+      - persistentvolumeclaims
+    verbs: ["*"]
+  - apiGroups: ["apps"]
+    resources:
+      - deployments
+      - statefulsets
+    verbs: ["*"]
+  - apiGroups: ["networking.k8s.io"]
+    resources:
+      - networkpolicies
+      - ingresses
+    verbs: ["*"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: provisioning-api-binding
+subjects:
+  - kind: ServiceAccount
+    name: provisioning-api
+    namespace: provisioning
+roleRef:
+  kind: ClusterRole
+  name: provisioning-api-role
+  apiGroup: rbac.authorization.k8s.io

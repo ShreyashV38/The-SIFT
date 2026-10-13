@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: tenant-quota
+  namespace: {{ .Release.Namespace }}
+  labels:
+    sift.io/tenant: {{ .Values.tenant.slug }}
+spec:
+  hard:
+    pods: "3"
+    requests.cpu: "500m"
+    requests.memory: "768Mi"
+    limits.cpu: "1500m"
+    limits.memory: "1Gi"
+    persistentvolumeclaims: "1"

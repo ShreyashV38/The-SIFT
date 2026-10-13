@@ -1,0 +1,122 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: tb-data-pvc
+  namespace: observability
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 2Gi
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: thingsboard
+  namespace: observability
+  labels:
+    app.kubernetes.io/name: thingsboard
+spec:
+  serviceName: thingsboard
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: thingsboard
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: thingsboard
+    spec:
+      nodeSelector:
+        sift.io/role: worker
+      containers:
+        - name: thingsboard
+          image: thingsboard/tb-postgres:3.6.2
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+            - name: mqtt
+              containerPort: 1883
+          env:
+            - name: TB_QUEUE_TYPE
+              value: "in-memory"
+            - name: JAVA_OPTS
+              value: "-Xms512M -Xmx1024M"
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "1Gi"
+            limits:
+              cpu: "1500m"
+              memory: "2Gi"
+          readinessProbe:
+            httpGet:
+              path: /login
+              port: 8080
+            initialDelaySeconds: 60
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 5
+          livenessProbe:
+            httpGet:
+              path: /login
+              port: 8080
+            initialDelaySeconds: 120
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          volumeMounts:
+            - name: tb-data
+              mountPath: /data
+            - name: tb-logs
+              mountPath: /var/log/thingsboard
+      volumes:
+        - name: tb-data
+          persistentVolumeClaim:
+            claimName: tb-data-pvc
+        - name: tb-logs
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: thingsboard
+  namespace: observability
+  labels:
+    app.kubernetes.io/name: thingsboard
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+    - name: mqtt
+      port: 1883
+      targetPort: 1883
+  selector:
+    app.kubernetes.io/name: thingsboard
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: thingsboard-ingress
+  namespace: observability
+  labels:
+    app.kubernetes.io/name: thingsboard
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: web
+spec:
+  rules:
+    - host: tb.localtest.me
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: thingsboard
+                port:
+                  number: 8080

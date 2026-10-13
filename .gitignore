@@ -37,3 +37,6 @@ Thumbs.db
 # Build artifacts
 dist/
 build/
+
+# Magistrala source (cloned at deploy time, not our code)
+deploy/magistrala/magistrala-src/

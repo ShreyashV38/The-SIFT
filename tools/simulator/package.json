@@ -1,0 +1,17 @@
+{
+  "name": "cloudnest-simulator",
+  "version": "1.0.0",
+  "description": "CloudNest IoT device simulator and load testing tool",
+  "main": "simulator.js",
+  "scripts": {
+    "start": "node simulator.js",
+    "test:s1": "node simulator.js --scenario=s1",
+    "test:s2": "node simulator.js --scenario=s2",
+    "test:s3": "node simulator.js --scenario=s3",
+    "test:s4": "node simulator.js --scenario=s4",
+    "test:s5": "node simulator.js --scenario=s5"
+  },
+  "dependencies": {
+    "mqtt": "^5.10.3"
+  }
+}

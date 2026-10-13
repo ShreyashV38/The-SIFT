@@ -1,0 +1,39 @@
+tenant:
+  slug: "demo1"
+  domain: "localtest.me"
+
+homeAssistant:
+  image:
+    repository: "ghcr.io/home-assistant/home-assistant"
+    tag: "2025.1.0"
+    pullPolicy: IfNotPresent
+  resources:
+    requests:
+      cpu: "300m"
+      memory: "512Mi"
+    limits:
+      cpu: "1000m"
+      memory: "1Gi"
+  persistence:
+    enabled: false
+    storageClass: "local-path"
+    size: "1Gi"
+
+persistence:
+  enabled: false
+  storageClass: "local-path"
+  size: "1Gi"
+
+mqtt:
+  host: "magistrala-mqtt.platform.svc.cluster.local"
+  port: 1883
+  clientId: ""
+  secret: ""
+  telemetryChannel: ""
+  commandChannel: ""
+
+nodeSelector:
+  sift.io/role: worker
+
+tolerations: []
+affinity: {}

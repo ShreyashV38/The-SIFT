@@ -1,0 +1,44 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ha-config
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: home-assistant
+    sift.io/tenant: {{ .Values.tenant.slug }}
+data:
+  configuration.yaml: |
+    # Home Assistant configuration for tenant: {{ .Values.tenant.slug }}
+    default_config:
+
+    frontend:
+      themes: !include_dir_merge_named themes
+
+    automation: !include automations.yaml
+    script: !include scripts.yaml
+    scene: !include scenes.yaml
+
+    http:
+      use_x_forwarded_for: true
+      trusted_proxies:
+        - 10.42.0.0/16
+        - 10.43.0.0/16
+        - 127.0.0.1
+        - ::1
+
+    {{- if .Values.mqtt.telemetryChannel }}
+    # MQTT integration pointing to Magistrala
+    # HA subscribes to telemetry channel and publishes to command channel
+    mqtt:
+      sensor:
+        - name: "Tenant Sensor"
+          state_topic: "channels/{{ .Values.mqtt.telemetryChannel }}/messages"
+          value_template: "{{ "{{ value_json.temperature | default(value_json[0].v, true) }}" }}"
+          unit_of_measurement: "°C"
+      switch:
+        - name: "Tenant Switch"
+          command_topic: "channels/{{ .Values.mqtt.commandChannel }}/messages"
+          state_topic: "channels/{{ .Values.mqtt.telemetryChannel }}/messages"
+          payload_on: "ON"
+          payload_off: "OFF"
+    {{- end }}

@@ -1,0 +1,16 @@
+{
+  "name": "cloudnest-tb-bridge",
+  "version": "1.0.0",
+  "description": "CloudNest tb-bridge - forwards Magistrala channel telemetry to ThingsBoard CE",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js"
+  },
+  "dependencies": {
+    "express": "^4.21.1",
+    "mqtt": "^5.10.3",
+    "node-fetch": "^3.3.2",
+    "winston": "^3.17.0"
+  }
+}

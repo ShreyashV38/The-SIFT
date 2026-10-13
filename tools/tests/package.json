@@ -1,0 +1,10 @@
+{
+  "name": "cloudnest-tests",
+  "version": "1.0.0",
+  "description": "CloudNest automated verification and security test suite",
+  "main": "test_suite.js",
+  "scripts": {
+    "test": "node test_suite.js"
+  },
+  "dependencies": {}
+}

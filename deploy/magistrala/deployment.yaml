@@ -1,0 +1,198 @@
+# ---------------------------------------------------------------------------
+# CloudNest — Magistrala IoT Platform Manifests (Platform Namespace)
+# ---------------------------------------------------------------------------
+# Node role: sift.io/role=identity (Server)
+# PriorityClass: identity-critical
+# FR-02: Device identity, workspaces, and MQTT broker
+# FR-04: MQTT message exchange
+# FR-08: Device credential authentication
+# ---------------------------------------------------------------------------
+
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: magistrala-postgres-pvc
+  namespace: platform
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: magistrala-postgres
+  namespace: platform
+  labels:
+    app.kubernetes.io/name: magistrala-postgres
+spec:
+  serviceName: magistrala-postgres
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: magistrala-postgres
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: magistrala-postgres
+    spec:
+      priorityClassName: identity-critical
+      nodeSelector:
+        sift.io/role: identity
+      containers:
+        - name: postgres
+          image: postgres:16-alpine
+          ports:
+            - containerPort: 5432
+          env:
+            - name: POSTGRES_USER
+              value: "magistrala"
+            - name: POSTGRES_PASSWORD
+              value: "magistrala"
+            - name: POSTGRES_DB
+              value: "magistrala"
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+          volumeMounts:
+            - name: pg-data
+              mountPath: /var/lib/postgresql/data
+      volumes:
+        - name: pg-data
+          persistentVolumeClaim:
+            claimName: magistrala-postgres-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: magistrala-postgres
+  namespace: platform
+spec:
+  ports:
+    - port: 5432
+      targetPort: 5432
+  selector:
+    app.kubernetes.io/name: magistrala-postgres
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: magistrala-nats
+  namespace: platform
+  labels:
+    app.kubernetes.io/name: magistrala-nats
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: magistrala-nats
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: magistrala-nats
+    spec:
+      priorityClassName: identity-critical
+      nodeSelector:
+        sift.io/role: identity
+      containers:
+        - name: nats
+          image: nats:2.10-alpine
+          ports:
+            - containerPort: 4222
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              cpu: "200m"
+              memory: "128Mi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: magistrala-nats
+  namespace: platform
+spec:
+  ports:
+    - port: 4222
+      targetPort: 4222
+  selector:
+    app.kubernetes.io/name: magistrala-nats
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: magistrala-mqtt
+  namespace: platform
+  labels:
+    app.kubernetes.io/name: magistrala-mqtt
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: magistrala-mqtt
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: magistrala-mqtt
+    spec:
+      priorityClassName: identity-critical
+      nodeSelector:
+        sift.io/role: identity
+      containers:
+        - name: mqtt-adapter
+          image: eclipse-mosquitto:2.0
+          command:
+            - /usr/sbin/mosquitto
+            - -c
+            - /mosquitto/config/mosquitto.conf
+          ports:
+            - name: mqtt
+              containerPort: 1883
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "64Mi"
+            limits:
+              cpu: "500m"
+              memory: "256Mi"
+          volumeMounts:
+            - name: config
+              mountPath: /mosquitto/config
+      volumes:
+        - name: config
+          configMap:
+            name: magistrala-mqtt-config
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: magistrala-mqtt-config
+  namespace: platform
+data:
+  mosquitto.conf: |
+    listener 1883
+    allow_anonymous true
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: magistrala-mqtt
+  namespace: platform
+  labels:
+    app.kubernetes.io/name: magistrala-mqtt
+spec:
+  type: LoadBalancer
+  ports:
+    - name: mqtt
+      port: 1883
+      targetPort: 1883
+  selector:
+    app.kubernetes.io/name: magistrala-mqtt

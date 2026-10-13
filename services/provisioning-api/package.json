@@ -1,0 +1,23 @@
+{
+  "name": "cloudnest-provisioning-api",
+  "version": "1.0.0",
+  "description": "CloudNest multi-tenant IoT provisioning API",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js"
+  },
+  "dependencies": {
+    "bcrypt": "^5.1.1",
+    "better-sqlite3": "^11.7.0",
+    "cors": "^2.8.5",
+    "express": "^4.21.1",
+    "express-rate-limit": "^7.4.1",
+    "helmet": "^8.0.0",
+    "jsonwebtoken": "^9.0.2",
+    "mqtt": "^5.10.3",
+    "node-fetch": "^3.3.2",
+    "uuid": "^10.0.0",
+    "winston": "^3.17.0"
+  }
+}
