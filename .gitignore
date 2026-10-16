@@ -40,3 +40,7 @@ build/
 
 # Magistrala source (cloned at deploy time, not our code)
 deploy/magistrala/magistrala-src/
+
+# Internal prompt and AI instructions
+SIFT_BUILD_PROMPT.md
+*.prompt.md

@@ -283,10 +283,10 @@ UNVERIFIED — will be documented in Phase 6B.
 Stopped instances still cost ~$12/mo (EBS + IPv4). For ~22 days before 02 Nov 2026 running 24/7 ≈ $53. If Phase 10 shows node 2 needs 8 GB → +~$30/mo.
 
 ### Tier B — Production baseline (reference only)
-~$293/mo — see SIFT_BUILD_PROMPT.md section 6.
+~$293/mo — see CloudNest_BRD_v3.md section 9.3.
 
 ### Tier C — 1,000 tenants (reference only)
-EC2 bin-packing ~$7,950/mo vs Fargate ~$11,850/mo — see SIFT_BUILD_PROMPT.md section 6.
+EC2 bin-packing ~$7,950/mo vs Fargate ~$11,850/mo — see CloudNest_BRD_v3.md section 9.4.
 
 ## 11. Known limitations and next steps
 
