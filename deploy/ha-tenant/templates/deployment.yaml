@@ -39,7 +39,7 @@ spec:
             - name: HA_PASSWORD
               value: {{ .Values.haAuth.password | default "CloudNest2026!" | quote }}
             - name: HA_PASSWORD_HASH
-              value: {{ .Values.haAuth.passwordHash | default "$2b$10$EbIUIjlZJWAaOAFDX1Vke.fU1UGrOFEDb4Chg4qUlyjpR8gEdIMYa" | quote }}
+              value: {{ .Values.haAuth.passwordHash | default "JDJiJDEyJFpCUkFpMlVTcHFkQkE0VGgzdUZ1Zi5rcC5TbVloNjgyQjlsRDFHVFBDbXByUXhhMElwYzB5" | quote }}
             - name: MQTT_BROKER_HOST
               value: {{ .Values.mqtt.host | default "magistrala-mqtt.platform.svc.cluster.local" | quote }}
             - name: MQTT_BROKER_PORT

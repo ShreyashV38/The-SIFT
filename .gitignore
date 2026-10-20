@@ -44,3 +44,4 @@ deploy/magistrala/magistrala-src/
 # Internal prompt and AI instructions
 SIFT_BUILD_PROMPT.md
 *.prompt.md
+audit.txt

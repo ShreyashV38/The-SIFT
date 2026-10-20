@@ -24,7 +24,7 @@ const devicesRouter = require('./routes/devices');
 const app = express();
 
 // Security middleware
-app.use(helmet());
+app.use(helmet({ contentSecurityPolicy: false }));
 app.use(cors());
 
 // Global rate limiting (defense against brute-force / DoS)

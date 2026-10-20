@@ -23,7 +23,7 @@ homeAssistant:
 haAuth:
   username: "admin"
   password: "CloudNest2026!"
-  passwordHash: "$2b$10$EbIUIjlZJWAaOAFDX1Vke.fU1UGrOFEDb4Chg4qUlyjpR8gEdIMYa"
+  passwordHash: "JDJiJDEyJFpCUkFpMlVTcHFkQkE0VGgzdUZ1Zi5rcC5TbVloNjgyQjlsRDFHVFBDbXByUXhhMElwYzB5"
 
 persistence:
   enabled: false
@@ -38,8 +38,7 @@ mqtt:
   telemetryChannel: ""
   commandChannel: ""
 
-nodeSelector:
-  sift.io/role: worker
+nodeSelector: {}
 
 tolerations: []
 affinity: {}

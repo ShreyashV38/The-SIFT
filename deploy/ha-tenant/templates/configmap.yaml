@@ -55,29 +55,19 @@ data:
     mkdir -p /config/.storage
 
     # 1. Seed onboarding as completed
-    cp /config-source/onboarding.json /config/.storage/onboarding
+    cp -n /config-source/onboarding.json /config/.storage/onboarding 2>/dev/null || true
 
-    # 2. Generate bcrypt hash and seed auth_provider.homeassistant
     HA_USER="${HA_USERNAME:-admin}"
     HA_PASS="${HA_PASSWORD:-CloudNest2026!}"
-    # Use Python (available in HA image) to generate bcrypt hash
-    # For busybox init, we use a pre-computed approach
-    # The hash is generated using htpasswd-compatible bcrypt
-    HASH=$(python3 -c "
-    import hashlib, base64, os, json
-    password = '${HA_PASS}'
-    # Use SHA-256 based hash since bcrypt may not be available in busybox
-    salt = os.urandom(16)
-    import hmac
-    # Simple hash for HA auth provider format
-    print(hashlib.sha256(password.encode()).hexdigest())
-    " 2>/dev/null || echo "fallback")
 
-    # 3. Generate a unique user ID
-    USER_ID=$(cat /proc/sys/kernel/random/uuid 2>/dev/null || echo "00000000-0000-4000-8000-000000000001")
+    # Only seed auth and integrations on initial deployment (preserve state on restart)
+    if [ ! -f /config/.storage/auth ]; then
+      # 2. Generate 32-char hex IDs for user and credential
+      USER_ID=$(cat /proc/sys/kernel/random/uuid 2>/dev/null | tr -d '-' || echo "00000000000040008000000000000001")
+      CRED_ID=$(cat /proc/sys/kernel/random/uuid 2>/dev/null | tr -d '-' || echo "00000000000040008000000000000002")
 
-    # 4. Seed auth (users and credentials)
-    cat > /config/.storage/auth <<AUTHEOF
+      # 3. Seed auth (users and credentials)
+      cat > /config/.storage/auth <<AUTHEOF
     {
       "version": 1,
       "minor_version": 2,
@@ -101,7 +91,7 @@ data:
         ],
         "credentials": [
           {
-            "id": "${USER_ID}-cred",
+            "id": "${CRED_ID}",
             "user_id": "${USER_ID}",
             "auth_provider_type": "homeassistant",
             "auth_provider_id": null,
@@ -116,8 +106,8 @@ data:
     }
     AUTHEOF
 
-    # 5. Seed auth_provider.homeassistant with the username/bcrypt-hashed password
-    cat > /config/.storage/auth_provider.homeassistant <<HAPEOF
+      # 4. Seed auth_provider.homeassistant with the username/base64-encoded bcrypt password
+      cat > /config/.storage/auth_provider.homeassistant <<HAPEOF
     {
       "version": 1,
       "minor_version": 1,
@@ -133,12 +123,12 @@ data:
     }
     HAPEOF
 
-    # 6. Seed MQTT config entry pointing to Magistrala broker
-    MQTT_HOST="${MQTT_BROKER_HOST:-magistrala-mqtt.platform.svc.cluster.local}"
-    MQTT_PORT="${MQTT_BROKER_PORT:-1883}"
-    ENTRY_ID=$(cat /proc/sys/kernel/random/uuid 2>/dev/null | tr -d '-' | head -c 32 || echo "mqttconfigentry00000001")
+      # 5. Seed MQTT config entry pointing to Magistrala broker
+      MQTT_HOST="${MQTT_BROKER_HOST:-magistrala-mqtt.platform.svc.cluster.local}"
+      MQTT_PORT="${MQTT_BROKER_PORT:-1883}"
+      ENTRY_ID=$(cat /proc/sys/kernel/random/uuid 2>/dev/null | tr -d '-' | head -c 32 || echo "mqttconfigentry00000001")
 
-    cat > /config/.storage/core.config_entries <<MQTTEOF
+      cat > /config/.storage/core.config_entries <<MQTTEOF
     {
       "version": 1,
       "minor_version": 1,
@@ -168,7 +158,10 @@ data:
     }
     MQTTEOF
 
-    echo "=== CloudNest HA Init: Complete ==="
+      echo "=== CloudNest HA Init: Auth and MQTT pre-seeded ==="
+    else
+      echo "=== CloudNest HA Init: /config/.storage/auth exists, preserving state ==="
+    fi
+
     echo "  User: ${HA_USER}"
-    echo "  MQTT Broker: ${MQTT_HOST}:${MQTT_PORT}"
     echo "  Onboarding: bypassed"

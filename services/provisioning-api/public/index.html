@@ -543,7 +543,7 @@
       if (!loginRes.ok) throw new Error(loginData.error || 'Login failed');
 
       token = loginData.token;
-      apiKey = loginData.apiKey || prompt('Enter your API key (from .env PROVISIONING_API_KEY):', 'change-me-to-a-random-string');
+      apiKey = loginData.apiKey || prompt('Enter your API key (from .env PROVISIONING_API_KEY):', 'change-me-to-a-random-string') || 'change-me-to-a-random-string';
 
       showStatus(1, `✅ Logged in as ${email}`, 'success');
       setStep(2);
@@ -575,7 +575,7 @@
       if (!res.ok) throw new Error(data.error || 'Login failed');
 
       token = data.token;
-      apiKey = prompt('Enter your API key (from .env PROVISIONING_API_KEY):', 'change-me-to-a-random-string');
+      apiKey = prompt('Enter your API key (from .env PROVISIONING_API_KEY):', 'change-me-to-a-random-string') || 'change-me-to-a-random-string';
 
       showStatus(1, `✅ Logged in as ${email}`, 'success');
       setStep(2);
