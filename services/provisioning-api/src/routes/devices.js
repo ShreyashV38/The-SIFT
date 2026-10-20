@@ -159,7 +159,7 @@ async function publishHADiscovery(tenant, deviceName, deviceId) {
   const mqtt = require('mqtt');
   const mqttUrl = config.mqttUrl;
   const slug = tenant.slug;
-  const uniqueId = `${slug}_${deviceId}`;
+  const uniqueId = deviceId; // matches DEVICE_CLIENT_ID
   const telemetryTopic = `channels/${tenant.mg_chan_telemetry}/messages`;
   const commandTopic = `channels/${tenant.mg_chan_commands}/messages`;
 

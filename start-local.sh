@@ -118,6 +118,7 @@ PF_PIDS=()
 cleanup() {
     echo ""
     echo "Cleaning up..."
+    docker rm -f cloudnest-mqtt 2>/dev/null || true
     for pid in "${PF_PIDS[@]}"; do
         kill "$pid" 2>/dev/null || true
     done
@@ -134,6 +135,18 @@ if $HAS_KUBECTL && $CLUSTER_REACHABLE; then
     echo -e "${GREEN}  Port forwards established.${NC}"
 else
     echo -e "${YELLOW}  Skipping port forwards (no cluster).${NC}"
+fi
+
+# Automated local Mosquitto check/fallback (Bug 4)
+MQTT_RUNNING=false
+if nc -z localhost 1883 2>/dev/null || (echo > /dev/tcp/localhost/1883) 2>/dev/null; then
+    MQTT_RUNNING=true
+fi
+
+if [ "$MQTT_RUNNING" = false ]; then
+    echo -e "${YELLOW}  Starting local Mosquitto MQTT broker on port 1883...${NC}"
+    docker run -d --name cloudnest-mqtt -p 1883:1883 eclipse-mosquitto:2 sh -c "echo 'listener 1883 0.0.0.0' > /mosquitto.conf && echo 'allow_anonymous true' >> /mosquitto.conf && mosquitto -c /mosquitto.conf" 2>/dev/null || true
+    sleep 1
 fi
 
 # ---- Step 4: Start Provisioning API ----

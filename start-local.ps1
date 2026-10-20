@@ -22,6 +22,20 @@ Write-Host ""
 # ---- Step 0: Prerequisites ----
 Write-Host "[1/5] Checking prerequisites..." -ForegroundColor Yellow
 
+# Auto-detect Node.js from standard install locations if not in PATH
+if (-not (Get-Command node -ErrorAction SilentlyContinue)) {
+    if (Test-Path "$env:LOCALAPPDATA\nvm\v22.18.0\node.exe") {
+        $env:PATH = "$env:LOCALAPPDATA\nvm\v22.18.0;$env:PATH"
+    } else {
+        $nvmNode = Get-ChildItem -Path "$env:LOCALAPPDATA\nvm" -Filter "node.exe" -Recurse -Depth 2 -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($nvmNode) {
+            $env:PATH = "$($nvmNode.DirectoryName);$env:PATH"
+        } elseif (Test-Path "C:\Program Files\nodejs\node.exe") {
+            $env:PATH = "C:\Program Files\nodejs;$env:PATH"
+        }
+    }
+}
+
 $missing = @()
 foreach ($cmd in @("node", "npm", "docker")) {
     if (-not (Get-Command $cmd -ErrorAction SilentlyContinue)) {
@@ -131,7 +145,14 @@ if ($hasKubectl -and $clusterReachable) {
     Write-Host "  Port forwards established." -ForegroundColor Green
 } else {
     Write-Host "  Skipping port forwards (no cluster)." -ForegroundColor Yellow
-    Write-Host "  MQTT will use localhost:1883 if Mosquitto/Magistrala is running locally." -ForegroundColor Yellow
+}
+
+# Automated local Mosquitto check/fallback (Bug 4)
+$mqttRunning = Test-NetConnection -ComputerName localhost -Port 1883 -InformationLevel Quiet
+if (-not $mqttRunning) {
+    Write-Host "  Starting local Mosquitto MQTT broker on port 1883..." -ForegroundColor Yellow
+    docker run -d --name cloudnest-mqtt -p 1883:1883 eclipse-mosquitto:2 sh -c "echo 'listener 1883 0.0.0.0' > /mosquitto.conf && echo 'allow_anonymous true' >> /mosquitto.conf && mosquitto -c /mosquitto.conf" 2>$null | Out-Null
+    Start-Sleep -Seconds 1
 }
 
 # ---- Step 4: Start Provisioning API ----
@@ -163,8 +184,10 @@ node src/index.js
 
 Pop-Location
 
-# Cleanup port-forward jobs on exit
+# Cleanup port-forward jobs and local containers on exit
+docker rm -f cloudnest-mqtt 2>$null | Out-Null
 foreach ($job in $portForwardJobs) {
     Stop-Job $job -ErrorAction SilentlyContinue
     Remove-Job $job -ErrorAction SilentlyContinue
 }
+

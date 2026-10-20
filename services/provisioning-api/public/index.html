@@ -376,9 +376,15 @@
         <input type="text" id="reg-name" placeholder="Your Name">
       </div>
     </div>
-    <div class="form-group">
-      <label for="reg-password">Password</label>
-      <input type="password" id="reg-password" placeholder="Min 8 characters">
+    <div class="form-row">
+      <div class="form-group">
+        <label for="reg-password">Password</label>
+        <input type="password" id="reg-password" placeholder="Min 8 characters">
+      </div>
+      <div class="form-group">
+        <label for="api-key">Platform API Key (X-API-Key)</label>
+        <input type="text" id="api-key" value="change-me-to-a-random-string" placeholder="change-me-to-a-random-string">
+      </div>
     </div>
 
     <button id="btn-register" onclick="doRegister()">Register Account</button>
@@ -402,12 +408,18 @@
         <input type="text" id="tenant-name" placeholder="My Smart Home">
       </div>
     </div>
-    <div class="form-group">
-      <label for="tenant-plan">Plan</label>
-      <select id="tenant-plan">
-        <option value="single">Single (1 user, 10 devices)</option>
-        <option value="family">Family (6 users, 30 devices)</option>
-      </select>
+    <div class="form-row">
+      <div class="form-group">
+        <label for="tenant-plan">Plan</label>
+        <select id="tenant-plan">
+          <option value="single">Single (1 user, 10 devices)</option>
+          <option value="family">Family (6 users, 30 devices)</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label for="tenant-api-key">Platform API Key (X-API-Key)</label>
+        <input type="text" id="tenant-api-key" value="change-me-to-a-random-string" placeholder="change-me-to-a-random-string">
+      </div>
     </div>
 
     <button id="btn-tenant" onclick="doCreateTenant()">Create Tenant</button>
@@ -449,12 +461,12 @@
     <div class="form-row">
       <div class="form-group">
         <label for="device-name">Device Name</label>
-        <input type="text" id="device-name" placeholder="living-room-sensor">
+        <input type="text" id="device-name" value="ESP32 Sensor" placeholder="ESP32 Sensor">
       </div>
       <div class="form-group">
         <label for="device-kind">Kind</label>
         <select id="device-kind">
-          <option value="esp32">ESP32</option>
+          <option value="esp32" selected>ESP32</option>
           <option value="simulator">Simulator</option>
           <option value="other">Other</option>
         </select>
@@ -477,7 +489,7 @@
   // State
   const API = '';  // Same origin
   let token = '';
-  let apiKey = '';
+  let apiKey = 'change-me-to-a-random-string';
   let tenantSlug = '';
   let tenantPlan = '';
 
@@ -543,7 +555,9 @@
       if (!loginRes.ok) throw new Error(loginData.error || 'Login failed');
 
       token = loginData.token;
-      apiKey = loginData.apiKey || prompt('Enter your API key (from .env PROVISIONING_API_KEY):', 'change-me-to-a-random-string') || 'change-me-to-a-random-string';
+      apiKey = document.getElementById('api-key')?.value || apiKey || 'change-me-to-a-random-string';
+      const tenantKeyInput = document.getElementById('tenant-api-key');
+      if (tenantKeyInput) tenantKeyInput.value = apiKey;
 
       showStatus(1, `✅ Logged in as ${email}`, 'success');
       setStep(2);
@@ -575,7 +589,9 @@
       if (!res.ok) throw new Error(data.error || 'Login failed');
 
       token = data.token;
-      apiKey = prompt('Enter your API key (from .env PROVISIONING_API_KEY):', 'change-me-to-a-random-string') || 'change-me-to-a-random-string';
+      apiKey = document.getElementById('api-key')?.value || apiKey || 'change-me-to-a-random-string';
+      const tenantKeyInput = document.getElementById('tenant-api-key');
+      if (tenantKeyInput) tenantKeyInput.value = apiKey;
 
       showStatus(1, `✅ Logged in as ${email}`, 'success');
       setStep(2);
@@ -600,6 +616,7 @@
     showStatus(2, 'Provisioning tenant (this may take 1-2 minutes)...', 'info');
 
     try {
+      apiKey = document.getElementById('tenant-api-key')?.value || document.getElementById('api-key')?.value || apiKey || 'change-me-to-a-random-string';
       const res = await fetch(`${API}/v1/tenants`, {
         method: 'POST',
         headers: {
@@ -697,13 +714,8 @@
   }
 
   async function doRegisterDevice() {
-    const name = document.getElementById('device-name').value;
-    const kind = document.getElementById('device-kind').value;
-
-    if (!name) {
-      showStatus(4, 'Device name is required.', 'error');
-      return;
-    }
+    const name = document.getElementById('device-name').value || 'ESP32 Sensor';
+    const kind = document.getElementById('device-kind').value || 'esp32';
 
     document.getElementById('btn-device').disabled = true;
     showStatus(4, 'Registering device...', 'info');

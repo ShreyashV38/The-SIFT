@@ -398,3 +398,4 @@ EC2 bin-packing ~$7,950/mo vs Fargate ~$11,850/mo — see CloudNest_BRD_v3.md se
 | 2026-10-20 | 10B.4 | Web dashboard at GET / on provisioning-api with 4-step wizard | 1-click onboarding with auto-generated pre-filled Wokwi sketch |
 | 2026-10-20 | 10B.5 | start-local.ps1 / start-local.sh bootstrap scripts | Automated local env setup with port-forwards and dependency checks |
 | 2026-10-20 | 10B.6 | Offline resilience fallbacks for Magistrala/ThingsBoard, bcrypt auth in K8s, dual ID resolution in members routes | 14/14 automated verification tests passing |
+| 2026-10-20 | 10B.7 | Local environment & onboarding fixes: CSP disabled for dashboard, HA base64 bcrypt auth & 32-char hex IDs, repo-relative Helm chart resolution & HA port-forward, port 1883 Mosquitto fallback in start-local scripts, unified MQTT discovery unique_id & dashboard API key input | Reliable local Windows/Linux execution, 1-click web onboarding, and Wokwi ESP32 compatibility |
