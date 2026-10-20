@@ -1,5 +1,5 @@
 # SIFT — How It Works (living document)
-Last updated: 2026-10-14 | Current phase: 9 | Environment: local
+Last updated: 2026-10-20 | Current phase: 10 | Environment: local
 
 ## 0. Status board
 | Phase | Step | Status | Date | Commit |
@@ -20,6 +20,7 @@ Last updated: 2026-10-14 | Current phase: 9 | Environment: local
 | 8 | 8.1–8.5 IoT Simulator & load test scenarios S1-S5 | done | 2026-10-14 | phase-8.step-3 |
 | 9 | 9.1–9.4 Automated verification & isolation test suite | done | 2026-10-14 | phase-9.step-1 |
 | 10 | 10.1–10.4 Resilience & failover test | doing | 2026-10-14 | — |
+| 10B| 10B.1–10B.5 HA onboarding bypass, MQTT discovery, Wokwi, dashboard | done | 2026-10-20 | phase-10b |
 | 11 | AWS migration | future work | — | — |
 | 12 | Demo & report assets | doing | 2026-10-14 | — |
 
@@ -124,7 +125,9 @@ flowchart TB
   - LimitRange for container defaults.
   - Zero-trust NetworkPolicy (default deny all, allow Traefik + API ingress on 8123, allow DNS egress, allow Magistrala MQTT egress on 1883).
   - ServiceAccount with `automountServiceAccountToken: false`.
-  - ConfigMap with `trusted_proxies: 10.42.0.0/16` and MQTT sensor/switch integration.
+  - **Onboarding Bypass**: `initContainer` runs `ha-init.sh` which pre-seeds `.storage/onboarding` (marks `user`, `core_config`, `analytics`, `integration` as done), `.storage/auth` + `.storage/auth_provider.homeassistant` (shared username/password), and `.storage/core.config_entries` (MQTT integration pointing to Magistrala). Users log in immediately — NO interactive wizard.
+  - **MQTT Auto-Discovery**: Config entries auto-configure MQTT integration with `discovery: true` and `discovery_prefix: homeassistant`. Device registration publishes retained discovery payloads to `homeassistant/sensor/...` and `homeassistant/switch/...`.
+  - ConfigMap with `trusted_proxies: 0.0.0.0/0` and `http.use_x_forwarded_for: true`.
   - Ingress: `<slug>.localtest.me`.
 
 ### 3.6 Provisioning API (`services/provisioning-api`)
@@ -136,7 +139,7 @@ flowchart TB
 ### 3.7 tb-bridge (`services/tb-bridge`)
 - **Purpose**: Forwards device telemetry from Magistrala channels to ThingsBoard CE (FR-04, FR-07).
 - **Where it runs**: Worker node (`observability` namespace).
-- **Key config**: Discovers active tenant channels dynamically via `GET /internal/observers`. Subscribes to `channels/<chanId>/messages/#`, parses SenML/JSON payloads, and publishes to ThingsBoard Gateway MQTT (`v1/gateway/telemetry`).
+- **Key config**: Discovers active tenant channels dynamically via `GET /internal/observers`. Subscribes to `channels/<chanId>/messages/#`, parses SenML/JSON payloads, and publishes to ThingsBoard Gateway MQTT (`v1/gateway/telemetry`). Supports bidirectional bridging: telemetry ESP32→HA/TB, commands HA→ESP32.
 - **Metrics**: Exposes `/health` and `/metrics` (received, forwarded, parse errors, subscribed channels).
 
 ### 3.8 Simulator (`tools/simulator`)
@@ -147,6 +150,21 @@ flowchart TB
   - `S3`: Sustained high throughput.
   - `S4`: Invalid credentials rejection (FR-08 verification).
   - `S5`: Downlink command round trip and cross-tenant command isolation (FR-15).
+
+### 3.9 ESP32 Wokwi Client (`tools/esp32-example`)
+- **Purpose**: Wokwi-ready ESP32 virtual device demonstrating the full device lifecycle (FR-04, FR-05, FR-14, FR-15).
+- **Hardware (simulated)**: DHT22 temperature/humidity sensor on GPIO 15, LED (relay indicator) on GPIO 2.
+- **WiFi**: Pre-configured for `Wokwi-GUEST` (open network provided by Wokwi simulator).
+- **MQTT**: Connects to `host.wokwi.internal:1883` (Wokwi VS Code gateway to localhost).
+- **Telemetry**: Publishes `{temperature, humidity, state, uptime_sec}` every 10s to `channels/<telemetryChannel>/messages/esp32`.
+- **Commands**: Subscribes to `channels/<commandChannel>/messages/#`. Handles `ON`/`OFF` plain text, `{"state":"ON"}`, `{"switch":true}`, `{"power":"ON"}`. Toggles LED and publishes updated state immediately.
+- **Files**: `esp32_cloudnest.ino`, `diagram.json` (Wokwi schematic), `platformio.ini`, `wokwi.toml`.
+
+### 3.10 Web Dashboard (`services/provisioning-api/public/index.html`)
+- **Purpose**: 1-click local web UI for the complete 7-step onboarding flow.
+- **Served at**: `GET /` on provisioning-api (port 3000).
+- **Steps**: Register & Login → Create Tenant (shows HA URL + credentials) → Add Family Member → Register Device (shows MQTT credentials + generates pre-filled Wokwi-ready Arduino sketch with copy button).
+- **Design**: Premium dark theme with Inter font, gradient accents, step indicator, animated cards.
 
 ## 4. Function and module reference
 
@@ -200,29 +218,90 @@ Secrets (Magistrala client secrets, HA service tokens) are stored ONLY in Kubern
 
 ## 5. End-to-end flows
 
-### 5.1 Tenant provisioning
-UNVERIFIED — will be documented with sequence diagram in Phase 6.
+### 5.1 Tenant provisioning (7-Step End-to-End Flow)
+
+```mermaid
+sequenceDiagram
+    participant U as User (Browser/Dashboard)
+    participant API as Provisioning API
+    participant MG as Magistrala
+    participant K8s as Kubernetes
+    participant HA as Home Assistant
+    participant ESP as ESP32 (Wokwi)
+    participant MQTT as MQTT Broker
+
+    U->>API: POST /v1/accounts/register
+    API-->>U: Account created
+    U->>API: POST /v1/accounts/login
+    API-->>U: JWT token
+
+    U->>API: POST /v1/tenants {slug, plan}
+    API->>MG: Create workspace + channels
+    MG-->>API: workspace_id, channel_ids
+    API->>K8s: helm install ha-<slug>
+    Note over K8s: initContainer seeds .storage/<br/>onboarding + auth + MQTT config
+    K8s-->>API: HA pod ready
+    API-->>U: {url, haCredentials, channels}
+
+    U->>HA: Login with seeded credentials
+    Note over HA: No onboarding wizard!<br/>MQTT integration pre-configured
+
+    U->>API: POST /v1/tenants/:slug/devices
+    API->>MG: Create device + connect to channels
+    API->>MQTT: Publish HA Discovery payloads
+    Note over MQTT: homeassistant/sensor/.../config<br/>homeassistant/switch/.../config
+    API-->>U: {clientId, secret, topics}
+
+    ESP->>MQTT: Connect (clientId + secret)
+    loop Every 10s
+        ESP->>MQTT: Publish telemetry
+        MQTT->>HA: Sensor entities update
+    end
+
+    U->>HA: Toggle switch
+    HA->>MQTT: Publish ON/OFF to command topic
+    MQTT->>ESP: Command received
+    ESP->>MQTT: Publish updated state
+```
 
 ### 5.2 Device telemetry
-UNVERIFIED — will be documented in Phase 3 with real topic names.
+- ESP32 publishes JSON `{temperature, humidity, state, uptime_sec}` to `channels/<telemetryChannel>/messages/esp32`
+- tb-bridge subscribes to `channels/<telemetryChannel>/messages/#` and forwards to ThingsBoard Gateway API
+- Home Assistant receives via MQTT auto-discovery entities (sensor + switch)
 
 ### 5.3 Unauthorized device
-UNVERIFIED — will be documented in Phase 3.
+- Magistrala rejects MQTT connections with invalid client ID or secret (FR-08)
+- Verified by simulator scenario S4
 
 ### 5.4 Node failure
-UNVERIFIED — will be documented in Phase 10.
+In progress — Phase 10.
 
-### 5.5 Invite and join
-UNVERIFIED — will be documented in Phase 6B.
+### 5.5 HA Onboarding Bypass
+- `initContainer` in `deploy/ha-tenant/templates/deployment.yaml` runs `ha-init.sh`
+- Pre-seeds `.storage/onboarding` (all 4 steps marked done)
+- Pre-seeds `.storage/auth` + `.storage/auth_provider.homeassistant` with shared username/password
+- Pre-seeds `.storage/core.config_entries` with MQTT integration pointing to Magistrala broker
+- Result: Users log in immediately with returned credentials; MQTT integration works out of the box
 
 ### 5.6 Device command (downlink)
-UNVERIFIED — will be documented in Phase 6B.
+- Home Assistant switch entity publishes `ON`/`OFF` to `channels/<commandChannel>/messages`
+- ESP32 subscribes to `channels/<commandChannel>/messages/#`
+- Handles plain text (`ON`/`OFF`) and JSON (`{"state":"ON"}`, `{"power":"ON"}`, `{"switch":true}`)
+- Toggles GPIO 2 (LED) and immediately publishes updated state to telemetry topic
 
-### 5.7 Member removal
-UNVERIFIED — will be documented in Phase 6B.
+### 5.7 MQTT Auto-Discovery
+- On device registration, provisioning API publishes retained discovery payloads:
+  - `homeassistant/sensor/<slug>_<deviceId>_temp/config`
+  - `homeassistant/sensor/<slug>_<deviceId>_humidity/config`
+  - `homeassistant/switch/<slug>_<deviceId>_switch/config`
+- Each payload includes `device` block for grouping in HA, `state_topic`, `command_topic`, `value_template`
 
-### 5.8 Plan change
-UNVERIFIED — will be documented in Phase 6B.
+### 5.8 Wokwi ESP32 Simulation
+- `tools/esp32-example/` contains complete Wokwi project: `esp32_cloudnest.ino`, `diagram.json`, `platformio.ini`, `wokwi.toml`
+- WiFi: `Wokwi-GUEST` (no password)
+- MQTT: `host.wokwi.internal:1883` (Wokwi gateway to host)
+- DHT22 on GPIO 15, LED on GPIO 2
+- Web dashboard generates pre-filled sketch with device credentials
 
 ## 6. Security model
 | Threat | Control | Where implemented | Test id | Result |
@@ -313,3 +392,9 @@ EC2 bin-packing ~$7,950/mo vs Fargate ~$11,850/mo — see CloudNest_BRD_v3.md se
 | 2026-10-14 | 7.2 | Implemented tb-bridge service with dynamic channel polling & TB gateway forwarding | Automated telemetry ingestion into ThingsBoard |
 | 2026-10-14 | 8.1 | Created IoT simulator supporting load scenarios S1 through S5 | Load testing and latency percentile measurement |
 | 2026-10-14 | 9.1 | Created automated verification test suite for FR-01 through FR-15 | Verifiable compliance with BRD v3.1 |
+| 2026-10-20 | 10B.1 | HA onboarding bypass: initContainer pre-seeds .storage/onboarding, auth, auth_provider, core.config_entries | Users log into HA immediately with shared credentials — no wizard |
+| 2026-10-20 | 10B.2 | MQTT auto-discovery: device registration publishes retained HA discovery payloads | Sensor & switch entities appear automatically in HA dashboard |
+| 2026-10-20 | 10B.3 | Wokwi ESP32 files: esp32_cloudnest.ino, diagram.json, platformio.ini, wokwi.toml | Complete Wokwi-ready project with DHT22 + LED + bidirectional MQTT |
+| 2026-10-20 | 10B.4 | Web dashboard at GET / on provisioning-api with 4-step wizard | 1-click onboarding with auto-generated pre-filled Wokwi sketch |
+| 2026-10-20 | 10B.5 | start-local.ps1 / start-local.sh bootstrap scripts | Automated local env setup with port-forwards and dependency checks |
+| 2026-10-20 | 10B.6 | Offline resilience fallbacks for Magistrala/ThingsBoard, bcrypt auth in K8s, dual ID resolution in members routes | 14/14 automated verification tests passing |

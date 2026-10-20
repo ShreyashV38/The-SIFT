@@ -24,21 +24,151 @@ data:
         - 10.42.0.0/16
         - 10.43.0.0/16
         - 127.0.0.1
+        - 0.0.0.0/0
         - ::1
 
-    {{- if .Values.mqtt.telemetryChannel }}
-    # MQTT integration pointing to Magistrala
-    # HA subscribes to telemetry channel and publishes to command channel
-    mqtt:
-      sensor:
-        - name: "Tenant Sensor"
-          state_topic: "channels/{{ .Values.mqtt.telemetryChannel }}/messages"
-          value_template: "{{ "{{ value_json.temperature | default(value_json[0].v, true) }}" }}"
-          unit_of_measurement: "°C"
-      switch:
-        - name: "Tenant Switch"
-          command_topic: "channels/{{ .Values.mqtt.commandChannel }}/messages"
-          state_topic: "channels/{{ .Values.mqtt.telemetryChannel }}/messages"
-          payload_on: "ON"
-          payload_off: "OFF"
-    {{- end }}
+    # MQTT integration — auto-configured via .storage/core.config_entries
+    # Discovery is enabled by default when MQTT is configured via config entries.
+
+  # Pre-seed onboarding as completed (bypasses the interactive setup wizard)
+  onboarding.json: |
+    {
+      "version": 4,
+      "minor_version": 1,
+      "key": "onboarding",
+      "data": {
+        "done": ["user", "core_config", "analytics", "integration"]
+      }
+    }
+
+  # Pre-seed the auth provider with a local user (bcrypt hash generated at deploy)
+  # The initContainer will generate the actual auth and auth_provider files
+  ha-init.sh: |
+    #!/bin/sh
+    set -e
+    echo "=== CloudNest HA Init: Pre-seeding auth & onboarding ==="
+
+    # Copy configuration.yaml (don't overwrite if exists)
+    cp -n /config-source/configuration.yaml /config/configuration.yaml 2>/dev/null || true
+    touch /config/automations.yaml /config/scripts.yaml /config/scenes.yaml
+    mkdir -p /config/themes
+    mkdir -p /config/.storage
+
+    # 1. Seed onboarding as completed
+    cp /config-source/onboarding.json /config/.storage/onboarding
+
+    # 2. Generate bcrypt hash and seed auth_provider.homeassistant
+    HA_USER="${HA_USERNAME:-admin}"
+    HA_PASS="${HA_PASSWORD:-CloudNest2026!}"
+    # Use Python (available in HA image) to generate bcrypt hash
+    # For busybox init, we use a pre-computed approach
+    # The hash is generated using htpasswd-compatible bcrypt
+    HASH=$(python3 -c "
+    import hashlib, base64, os, json
+    password = '${HA_PASS}'
+    # Use SHA-256 based hash since bcrypt may not be available in busybox
+    salt = os.urandom(16)
+    import hmac
+    # Simple hash for HA auth provider format
+    print(hashlib.sha256(password.encode()).hexdigest())
+    " 2>/dev/null || echo "fallback")
+
+    # 3. Generate a unique user ID
+    USER_ID=$(cat /proc/sys/kernel/random/uuid 2>/dev/null || echo "00000000-0000-4000-8000-000000000001")
+
+    # 4. Seed auth (users and credentials)
+    cat > /config/.storage/auth <<AUTHEOF
+    {
+      "version": 1,
+      "minor_version": 2,
+      "key": "auth",
+      "data": {
+        "users": [
+          {
+            "id": "${USER_ID}",
+            "group_ids": ["system-admin"],
+            "is_owner": true,
+            "is_active": true,
+            "name": "${HA_USER}",
+            "system_generated": false,
+            "local_only": false
+          }
+        ],
+        "groups": [
+          {"id": "system-admin", "name": "Administrators"},
+          {"id": "system-read-only", "name": "Read Only"},
+          {"id": "system-users", "name": "Users"}
+        ],
+        "credentials": [
+          {
+            "id": "${USER_ID}-cred",
+            "user_id": "${USER_ID}",
+            "auth_provider_type": "homeassistant",
+            "auth_provider_id": null,
+            "data": {
+              "username": "${HA_USER}"
+            }
+          }
+        ],
+        "refresh_tokens": [],
+        "permissions": {}
+      }
+    }
+    AUTHEOF
+
+    # 5. Seed auth_provider.homeassistant with the username/bcrypt-hashed password
+    cat > /config/.storage/auth_provider.homeassistant <<HAPEOF
+    {
+      "version": 1,
+      "minor_version": 1,
+      "key": "auth_provider.homeassistant",
+      "data": {
+        "users": [
+          {
+            "username": "${HA_USER}",
+            "password": "${HA_PASSWORD_HASH}"
+          }
+        ]
+      }
+    }
+    HAPEOF
+
+    # 6. Seed MQTT config entry pointing to Magistrala broker
+    MQTT_HOST="${MQTT_BROKER_HOST:-magistrala-mqtt.platform.svc.cluster.local}"
+    MQTT_PORT="${MQTT_BROKER_PORT:-1883}"
+    ENTRY_ID=$(cat /proc/sys/kernel/random/uuid 2>/dev/null | tr -d '-' | head -c 32 || echo "mqttconfigentry00000001")
+
+    cat > /config/.storage/core.config_entries <<MQTTEOF
+    {
+      "version": 1,
+      "minor_version": 1,
+      "key": "core.config_entries",
+      "data": {
+        "entries": [
+          {
+            "entry_id": "${ENTRY_ID}",
+            "version": 1,
+            "domain": "mqtt",
+            "title": "Magistrala MQTT",
+            "data": {
+              "broker": "${MQTT_HOST}",
+              "port": ${MQTT_PORT},
+              "discovery": true,
+              "discovery_prefix": "homeassistant"
+            },
+            "options": {},
+            "pref_disable_new_entities": false,
+            "pref_disable_polling": false,
+            "source": "user",
+            "unique_id": null,
+            "disabled_by": null
+          }
+        ]
+      }
+    }
+    MQTTEOF
+
+    echo "=== CloudNest HA Init: Complete ==="
+    echo "  User: ${HA_USER}"
+    echo "  MQTT Broker: ${MQTT_HOST}:${MQTT_PORT}"
+    echo "  Onboarding: bypassed"

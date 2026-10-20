@@ -112,6 +112,15 @@ router.post('/:slug/devices', requireAuth, requireRole('admin'), async (req, res
       deviceId: result.lastInsertRowid,
     });
 
+    // Publish HA MQTT Discovery payloads (auto-creates entities in Home Assistant)
+    try {
+      await publishHADiscovery(tenant, name, mgDevice.id);
+    } catch (err) {
+      logger.warn('HA MQTT Discovery publish failed (non-critical)', { error: err.message });
+    }
+
+    const secret = mgDevice.credentials?.secret || mgDevice.secret;
+
     // FR-05: credentials shown once
     res.status(201).json({
       device: {
@@ -120,12 +129,22 @@ router.post('/:slug/devices', requireAuth, requireRole('admin'), async (req, res
         kind,
         mgClientId: mgDevice.id,
       },
+      device_id: mgDevice.id,
+      device_secret: secret,
       credentials: {
         clientId: mgDevice.id,
-        clientSecret: mgDevice.credentials?.secret || mgDevice.secret,
-        mqttHost: config.mqttUrl.replace('mqtt://', ''),
+        clientSecret: secret,
+        secret,
+        device_id: mgDevice.id,
+        device_secret: secret,
+        mqttHost: config.mqttPublicHost,
+        mqttPort: config.mqttPublicPort,
+        mqtt_host: config.mqttPublicHost,
+        mqtt_port: config.mqttPublicPort,
         telemetryTopic: `channels/${tenant.mg_chan_telemetry}/messages`,
         commandTopic: `channels/${tenant.mg_chan_commands}/messages`,
+        telemetry_topic: `channels/${tenant.mg_chan_telemetry}/messages`,
+        command_topic: `channels/${tenant.mg_chan_commands}/messages`,
         note: 'Save these credentials — the secret will not be shown again.',
       },
     });
@@ -134,6 +153,106 @@ router.post('/:slug/devices', requireAuth, requireRole('admin'), async (req, res
     res.status(500).json({ error: 'Internal server error' });
   }
 });
+
+// Publish Home Assistant MQTT Discovery payloads for automatic entity creation
+async function publishHADiscovery(tenant, deviceName, deviceId) {
+  const mqtt = require('mqtt');
+  const mqttUrl = config.mqttUrl;
+  const slug = tenant.slug;
+  const uniqueId = `${slug}_${deviceId}`;
+  const telemetryTopic = `channels/${tenant.mg_chan_telemetry}/messages`;
+  const commandTopic = `channels/${tenant.mg_chan_commands}/messages`;
+
+  const client = mqtt.connect(mqttUrl, {
+    clientId: `discovery-${Date.now()}`,
+    connectTimeout: 5000,
+  });
+
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      client.end(true);
+      reject(new Error('MQTT discovery publish timeout'));
+    }, 10000);
+
+    client.on('connect', () => {
+      const discoveryPayloads = [
+        {
+          topic: `homeassistant/sensor/${uniqueId}_temp/config`,
+          payload: {
+            name: `${deviceName} Temperature`,
+            unique_id: `${uniqueId}_temp`,
+            state_topic: telemetryTopic,
+            value_template: '{{ value_json.temperature }}',
+            unit_of_measurement: '°C',
+            device_class: 'temperature',
+            device: {
+              identifiers: [uniqueId],
+              name: deviceName,
+              manufacturer: 'CloudNest',
+              model: 'ESP32 IoT Sensor',
+            },
+          },
+        },
+        {
+          topic: `homeassistant/sensor/${uniqueId}_humidity/config`,
+          payload: {
+            name: `${deviceName} Humidity`,
+            unique_id: `${uniqueId}_humidity`,
+            state_topic: telemetryTopic,
+            value_template: '{{ value_json.humidity }}',
+            unit_of_measurement: '%',
+            device_class: 'humidity',
+            device: {
+              identifiers: [uniqueId],
+              name: deviceName,
+              manufacturer: 'CloudNest',
+              model: 'ESP32 IoT Sensor',
+            },
+          },
+        },
+        {
+          topic: `homeassistant/switch/${uniqueId}_switch/config`,
+          payload: {
+            name: `${deviceName} Switch`,
+            unique_id: `${uniqueId}_switch`,
+            state_topic: telemetryTopic,
+            command_topic: commandTopic,
+            value_template: '{{ value_json.state }}',
+            payload_on: 'ON',
+            payload_off: 'OFF',
+            state_on: 'ON',
+            state_off: 'OFF',
+            device: {
+              identifiers: [uniqueId],
+              name: deviceName,
+              manufacturer: 'CloudNest',
+              model: 'ESP32 IoT Sensor',
+            },
+          },
+        },
+      ];
+
+      let published = 0;
+      for (const { topic, payload } of discoveryPayloads) {
+        client.publish(topic, JSON.stringify(payload), { retain: true, qos: 1 }, (err) => {
+          if (err) logger.warn('Discovery publish error', { topic, error: err.message });
+          published++;
+          if (published === discoveryPayloads.length) {
+            clearTimeout(timeout);
+            client.end();
+            resolve();
+          }
+        });
+      }
+    });
+
+    client.on('error', (err) => {
+      clearTimeout(timeout);
+      client.end(true);
+      reject(err);
+    });
+  });
+}
 
 // POST /v1/tenants/:slug/devices/:deviceId/rotate-secret
 // Rotate device credentials. Requires admin or owner. (FR-05)
@@ -155,13 +274,17 @@ router.post('/:slug/devices/:deviceId/rotate-secret', requireAuth, requireRole('
     // Rotate in Magistrala
     const result = await magistrala.rotateDeviceSecret(tenant.mg_workspace_id, device.mg_client_id);
 
+    const newSecret = result.credentials?.secret || result.secret;
+
     logger.info('Device secret rotated', { slug: tenant.slug, deviceId });
 
     res.json({
       message: 'Secret rotated. Save the new credentials.',
+      secret: newSecret,
       credentials: {
         clientId: device.mg_client_id,
-        clientSecret: result.credentials?.secret || result.secret,
+        secret: newSecret,
+        clientSecret: newSecret,
       },
     });
   } catch (err) {

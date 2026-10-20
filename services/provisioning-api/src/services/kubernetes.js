@@ -11,6 +11,7 @@
 
 const { execSync } = require('child_process');
 const path = require('path');
+const bcrypt = require('bcrypt');
 const config = require('../config');
 const logger = require('../logger');
 
@@ -27,7 +28,10 @@ function deployTenant(slug, mqttCredentials) {
     execSafe(`kubectl label namespace ${namespace} pod-security.kubernetes.io/enforce=baseline --overwrite`);
     execSafe(`kubectl label namespace ${namespace} app.kubernetes.io/part-of=cloudnest --overwrite`);
 
-    // 2. Deploy via Helm with tenant-specific values
+    // 2. Precompute bcrypt hash of HA password for seeding Home Assistant auth
+    const haPasswordHash = bcrypt.hashSync(config.haPassword, 10);
+
+    // 3. Deploy via Helm with tenant-specific values
     const helmArgs = [
       `helm upgrade --install ${releaseName} ${HELM_CHART_PATH}`,
       `--namespace ${namespace}`,
@@ -36,6 +40,9 @@ function deployTenant(slug, mqttCredentials) {
       `--set homeAssistant.image.tag=${config.haImageTag}`,
       `--set mqtt.host=magistrala-mqtt.platform.svc.cluster.local`,
       `--set mqtt.port=1883`,
+      `--set haAuth.username=${config.haUsername}`,
+      `--set haAuth.password=${config.haPassword}`,
+      `--set haAuth.passwordHash="${haPasswordHash}"`,
       mqttCredentials.clientId ? `--set mqtt.clientId=${mqttCredentials.clientId}` : '',
       mqttCredentials.secret ? `--set mqtt.secret=${mqttCredentials.secret}` : '',
       mqttCredentials.telemetryChannel ? `--set mqtt.telemetryChannel=${mqttCredentials.telemetryChannel}` : '',
@@ -50,7 +57,11 @@ function deployTenant(slug, mqttCredentials) {
     return {
       namespace,
       releaseName,
-      url: `https://${slug}.${config.domain}`,
+      url: `http://${slug}.${config.domain}:8123`,
+      haCredentials: {
+        username: config.haUsername,
+        password: config.haPassword,
+      },
     };
   } catch (err) {
     logger.error('Failed to deploy tenant', { slug, error: err.message });

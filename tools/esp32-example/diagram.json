@@ -1,0 +1,53 @@
+{
+  "version": 1,
+  "author": "CloudNest / The-SIFT",
+  "editor": "wokwi",
+  "parts": [
+    {
+      "type": "board-esp32-devkit-c-v4",
+      "id": "esp",
+      "top": 0,
+      "left": 0,
+      "attrs": {}
+    },
+    {
+      "type": "wokwi-dht22",
+      "id": "dht1",
+      "top": -60,
+      "left": 150,
+      "attrs": {}
+    },
+    {
+      "type": "wokwi-led",
+      "id": "led1",
+      "top": -40,
+      "left": -80,
+      "attrs": {
+        "color": "green"
+      }
+    },
+    {
+      "type": "wokwi-resistor",
+      "id": "r1",
+      "top": 20,
+      "left": -100,
+      "attrs": {
+        "value": "220"
+      }
+    }
+  ],
+  "connections": [
+    ["esp:TX0", "$serialMonitor:RX", "", []],
+    ["esp:RX0", "$serialMonitor:TX", "", []],
+    ["dht1:VCC", "esp:3V3", "red", ["v10", "h-40"]],
+    ["dht1:SDA", "esp:15", "green", ["v20", "h-60"]],
+    ["dht1:GND", "esp:GND.2", "black", ["v30", "h-80"]],
+    ["led1:A", "r1:1", "green", []],
+    ["r1:2", "esp:2", "green", ["h40"]],
+    ["led1:C", "esp:GND.1", "black", ["v20"]]
+  ],
+  "serialMonitor": {
+    "display": "auto",
+    "newline": "lf"
+  }
+}

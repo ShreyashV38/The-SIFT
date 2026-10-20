@@ -100,7 +100,11 @@ router.post('/', requireApiKey, requireAuth, async (req, res) => {
         displayName,
         plan,
         namespace,
-        url: deployment.url || `https://${slug}.${config.domain}`,
+        url: deployment.url || `http://${slug}.${config.domain}:8123`,
+      },
+      haCredentials: deployment.haCredentials || {
+        username: config.haUsername,
+        password: config.haPassword,
       },
       magistrala: {
         workspaceId: mgWorkspace.id,

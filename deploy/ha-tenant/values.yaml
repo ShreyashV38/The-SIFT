@@ -19,6 +19,12 @@ homeAssistant:
     storageClass: "local-path"
     size: "1Gi"
 
+# Pre-seeded Home Assistant credentials (bypasses onboarding wizard)
+haAuth:
+  username: "admin"
+  password: "CloudNest2026!"
+  passwordHash: "$2b$10$EbIUIjlZJWAaOAFDX1Vke.fU1UGrOFEDb4Chg4qUlyjpR8gEdIMYa"
+
 persistence:
   enabled: false
   storageClass: "local-path"
@@ -37,3 +43,4 @@ nodeSelector:
 
 tolerations: []
 affinity: {}
+

@@ -119,19 +119,25 @@ router.post('/:slug/members', requireAuth, requireRole('admin'), (req, res) => {
 // Remove a member. Requires admin or owner.
 // FR-13: the last owner cannot be removed
 router.delete('/:slug/members/:accountId', requireAuth, requireRole('admin'), (req, res) => {
-  const targetAccountId = parseInt(req.params.accountId, 10);
+  const targetId = parseInt(req.params.accountId, 10);
   const db = getDb();
 
-  const targetMembership = db.prepare(
-    "SELECT id, role, account_id FROM memberships WHERE tenant_id = ? AND account_id = ? AND status = 'active'"
-  ).get(req.tenant.id, targetAccountId);
+  let targetMembership = db.prepare(
+    "SELECT id, role, account_id FROM memberships WHERE tenant_id = ? AND id = ? AND status = 'active'"
+  ).get(req.tenant.id, targetId);
+
+  if (!targetMembership) {
+    targetMembership = db.prepare(
+      "SELECT id, role, account_id FROM memberships WHERE tenant_id = ? AND account_id = ? AND status = 'active'"
+    ).get(req.tenant.id, targetId);
+  }
 
   if (!targetMembership) {
     return res.status(404).json({ error: 'Member not found' });
   }
 
   // Cannot remove yourself (use a separate leave endpoint)
-  if (targetAccountId === req.user.accountId) {
+  if (targetMembership.account_id === req.user.accountId) {
     return res.status(400).json({ error: 'Cannot remove yourself. Use transfer ownership first.' });
   }
 
@@ -142,7 +148,7 @@ router.delete('/:slug/members/:accountId', requireAuth, requireRole('admin'), (r
 
   // Cannot remove the owner (FR-13: last owner protection)
   if (targetMembership.role === 'owner') {
-    return res.status(403).json({ error: 'Cannot remove the owner. Transfer ownership first.' });
+    return res.status(400).json({ error: 'Cannot remove the owner. Transfer ownership first.' });
   }
 
   // Soft-remove the membership
@@ -150,7 +156,7 @@ router.delete('/:slug/members/:accountId', requireAuth, requireRole('admin'), (r
 
   logger.info('Member removed', {
     slug: req.params.slug,
-    targetAccountId,
+    targetAccountId: targetMembership.account_id,
     removedBy: req.user.accountId,
   });
 
@@ -160,7 +166,7 @@ router.delete('/:slug/members/:accountId', requireAuth, requireRole('admin'), (r
 // PUT /v1/tenants/:slug/members/:accountId/role
 // Change a member's role. Owner only.
 router.put('/:slug/members/:accountId/role', requireAuth, requireRole('owner'), (req, res) => {
-  const targetAccountId = parseInt(req.params.accountId, 10);
+  const targetId = parseInt(req.params.accountId, 10);
   const { role } = req.body;
 
   if (!role || !['admin', 'member'].includes(role)) {
@@ -169,9 +175,15 @@ router.put('/:slug/members/:accountId/role', requireAuth, requireRole('owner'), 
 
   const db = getDb();
 
-  const targetMembership = db.prepare(
-    "SELECT id, role FROM memberships WHERE tenant_id = ? AND account_id = ? AND status = 'active'"
-  ).get(req.tenant.id, targetAccountId);
+  let targetMembership = db.prepare(
+    "SELECT id, role, account_id FROM memberships WHERE tenant_id = ? AND id = ? AND status = 'active'"
+  ).get(req.tenant.id, targetId);
+
+  if (!targetMembership) {
+    targetMembership = db.prepare(
+      "SELECT id, role, account_id FROM memberships WHERE tenant_id = ? AND account_id = ? AND status = 'active'"
+    ).get(req.tenant.id, targetId);
+  }
 
   if (!targetMembership) {
     return res.status(404).json({ error: 'Member not found' });
@@ -185,7 +197,7 @@ router.put('/:slug/members/:accountId/role', requireAuth, requireRole('owner'), 
 
   logger.info('Member role changed', {
     slug: req.params.slug,
-    targetAccountId,
+    targetAccountId: targetMembership.account_id,
     newRole: role,
   });
 

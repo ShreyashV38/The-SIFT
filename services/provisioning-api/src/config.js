@@ -33,6 +33,15 @@ const config = {
   // MQTT (Magistrala FluxMQ)
   mqttUrl: process.env.MQTT_URL || 'mqtt://magistrala-mqtt.platform.svc.cluster.local:1883',
 
+  // MQTT public host — returned in device credentials for ESP32 / Wokwi
+  // Defaults to host.wokwi.internal for Wokwi VS Code extension; use 127.0.0.1 for local CLI
+  mqttPublicHost: process.env.MQTT_PUBLIC_HOST || 'host.wokwi.internal',
+  mqttPublicPort: parseInt(process.env.MQTT_PUBLIC_PORT || '1883', 10),
+
+  // Home Assistant — pre-seeded credentials (bypasses onboarding wizard)
+  haUsername: process.env.HA_USERNAME || 'admin',
+  haPassword: process.env.HA_PASSWORD || 'CloudNest2026!',
+
   // Home Assistant
   haImageTag: process.env.HA_IMAGE_TAG || '2025.1.0',
 

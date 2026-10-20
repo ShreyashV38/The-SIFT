@@ -49,6 +49,10 @@ const authLimiter = rateLimit({
 // JSON body parser with size limit
 app.use(express.json({ limit: '1mb' }));
 
+// Serve static web dashboard at GET /
+const path = require('path');
+app.use(express.static(path.join(__dirname, '..', 'public')));
+
 // Request logging middleware
 app.use((req, res, next) => {
   const start = Date.now();

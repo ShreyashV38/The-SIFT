@@ -1,0 +1,7 @@
+# CloudNest ESP32 Wokwi Configuration
+# Points to PlatformIO build output
+
+[wokwi]
+version = 1
+firmware = ".pio/build/esp32dev/firmware.bin"
+elf = ".pio/build/esp32dev/firmware.elf"
