@@ -151,6 +151,7 @@ if ($hasKubectl -and $clusterReachable) {
 $mqttRunning = Test-NetConnection -ComputerName localhost -Port 1883 -InformationLevel Quiet
 if (-not $mqttRunning) {
     Write-Host "  Starting local Mosquitto MQTT broker on port 1883..." -ForegroundColor Yellow
+    docker rm -f cloudnest-mqtt 2>$null | Out-Null
     docker run -d --name cloudnest-mqtt -p 1883:1883 eclipse-mosquitto:2 sh -c "echo 'listener 1883 0.0.0.0' > /mosquitto.conf && echo 'allow_anonymous true' >> /mosquitto.conf && mosquitto -c /mosquitto.conf" 2>$null | Out-Null
     Start-Sleep -Seconds 1
 }
