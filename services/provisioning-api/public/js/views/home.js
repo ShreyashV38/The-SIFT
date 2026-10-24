@@ -7,9 +7,9 @@ import { toast, copyToClipboard, renderSpinner } from '../ui.js';
 
 export async function renderHome(container, slug, router) {
   container.innerHTML = `
-    <div style="text-align: center; padding: 2rem;">
+    <div style="text-align: center; padding: var(--space-4xl) var(--space-xl);">
       ${renderSpinner()}
-      <p style="margin-top: 0.5rem;">Loading household dashboard...</p>
+      <p style="margin-top: var(--space-md); color: var(--text-muted); font-weight: 500;">Connecting to household instance...</p>
     </div>
   `;
 
@@ -22,7 +22,7 @@ export async function renderHome(container, slug, router) {
     ]);
   } catch (err) {
     container.innerHTML = `
-      <div class="card">
+      <div class="card" style="max-width: 600px; margin: 2rem auto;">
         <div class="banner banner-danger">
           <strong>Failed to load household:</strong> ${err.message}
         </div>
@@ -40,78 +40,152 @@ export async function renderHome(container, slug, router) {
   const limits = tenantData.limits || { seats: { used: 1, max: 1 }, devices: { used: 0, max: 10 } };
   const callerRole = tenantData.callerRole || 'member';
 
-  // Checklist computation (Section 7)
-  const isCreated = tenant.status === 'ready' || tenant.status === 'active';
   const hasDevice = devices.length > 0;
   const hasConnectedDevice = devices.some(d => d.firstConnectedAt);
   const isFamily = tenant.plan === 'family';
   const hasMultiMembers = members.length >= 2;
+  const onlineCount = devices.filter(d => d.status === 'online').length;
+
+  const tenants = (router.session && router.session.tenants && router.session.tenants.length > 0)
+    ? router.session.tenants
+    : (tenantData.tenant ? [tenantData.tenant] : []);
+
+  // Percentage calculations for quota bars
+  const devicePct = Math.min(100, Math.round((devices.length / (limits.devices?.max || 10)) * 100));
+  const seatPct = Math.min(100, Math.round((limits.seats.used / (limits.seats.max || 1)) * 100));
 
   container.innerHTML = `
     <div>
-      <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 1.5rem; flex-wrap: wrap; gap: 1rem;">
+      <!-- Household Page Header -->
+      <div class="page-header">
         <div>
-          <h1>${tenant.displayName}</h1>
-          <p>
-            Slug: <code style="font-family: var(--font-mono); color: var(--primary);">${tenant.slug}</code> •
-            Plan: <span class="badge badge-role">${tenant.plan}</span> •
-            Your Role: <span class="badge badge-online">${callerRole}</span>
+          <div style="display: flex; align-items: center; gap: 0.6rem; margin-bottom: 0.35rem; flex-wrap: wrap;">
+            <h1>${tenant.displayName}</h1>
+            <span class="badge badge-role" style="text-transform: uppercase; font-size: 0.7rem; letter-spacing: 0.05em;">
+              ${tenant.plan} plan
+            </span>
+            <span class="badge badge-online" style="font-size: 0.7rem;">
+              ● ${callerRole}
+            </span>
+          </div>
+          <p style="margin-bottom: 0;">
+            <span class="data-label" style="display: inline; text-transform: none; letter-spacing: normal;">Tenant Domain:</span>
+            <code style="margin-left: 0.25rem;">${tenant.slug}.localtest.me</code>
           </p>
         </div>
 
-        <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
-          <a href="#/t/${slug}/devices/new" class="btn btn-primary btn-sm">
-            + Add Device
-          </a>
-          <a href="#/t/${slug}/devices" class="btn btn-secondary btn-sm">
-            View Devices (${devices.length})
-          </a>
+        <div class="page-header-actions">
+          <div class="workspace-switcher-wrap" title="Switch active workspace">
+            <span class="workspace-icon" aria-hidden="true">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
+                <polyline points="9 22 9 12 15 12 15 22"/>
+              </svg>
+            </span>
+            <select id="workspace-switcher-select" class="workspace-switcher-dropdown" aria-label="Switch Workspace">
+              ${tenants.map(t => `<option value="${t.slug}" ${t.slug === slug ? 'selected' : ''}>${t.displayName || t.slug}</option>`).join('')}
+              <option value="__new__">+ New Workspace...</option>
+            </select>
+          </div>
+          <a href="#/t/${slug}/devices/new" class="btn btn-primary btn-sm">+ Add Device</a>
+          <a href="#/t/${slug}/devices" class="btn btn-secondary btn-sm">Devices (${devices.length})</a>
           ${callerRole !== 'member' ? `
-            <a href="#/t/${slug}/members" class="btn btn-secondary btn-sm">
-              Members (${members.length})
-            </a>
+            <a href="#/t/${slug}/members" class="btn btn-secondary btn-sm">Members (${members.length})</a>
+            <a href="#/t/${slug}/plan" class="btn btn-secondary btn-sm">Plan & Quota</a>
           ` : ''}
-          <a href="#/help/esp32" class="btn btn-secondary btn-sm">
-            📖 Help & Guide
-          </a>
+          <a href="#/help/esp32" class="btn btn-secondary btn-sm">Help Guide</a>
+        </div>
+      </div>
+
+      <!-- Live KPI Metrics Grid -->
+      <div class="stat-grid">
+        <div class="stat-card">
+          <div class="stat-label">Total Devices</div>
+          <div class="stat-value">${devices.length}</div>
+          <div class="stat-hint">${(limits.devices.max || 10) - devices.length} device slots remaining</div>
+          <div style="margin-top: 0.75rem; height: 4px; background: var(--border-subtle); border-radius: var(--radius-full); overflow: hidden;">
+            <div style="width: ${devicePct}%; height: 100%; background: var(--brand-teal); border-radius: var(--radius-full);"></div>
+          </div>
+        </div>
+
+        <div class="stat-card">
+          <div class="stat-label">Online Status</div>
+          <div class="stat-value" style="color: ${onlineCount > 0 ? 'var(--success)' : 'var(--text-muted)'}; display: flex; align-items: center; gap: 0.4rem;">
+            ${onlineCount > 0 ? `<span style="display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: var(--success); box-shadow: 0 0 8px rgba(16, 185, 129, 0.6);"></span>` : ''}
+            ${onlineCount}
+          </div>
+          <div class="stat-hint">${onlineCount > 0 ? 'Actively streaming telemetry' : 'No hardware online'}</div>
+        </div>
+
+        <div class="stat-card">
+          <div class="stat-label">Seat Capacity</div>
+          <div class="stat-value">${limits.seats.used} <span style="font-size: 1.1rem; color: var(--text-dim); font-weight: normal;">/ ${limits.seats.max}</span></div>
+          <div class="stat-hint">${isFamily ? 'Family collaboration tier' : 'Single seat tier'}</div>
+          <div style="margin-top: 0.75rem; height: 4px; background: var(--border-subtle); border-radius: var(--radius-full); overflow: hidden;">
+            <div style="width: ${seatPct}%; height: 100%; background: var(--brand-navy); border-radius: var(--radius-full);"></div>
+          </div>
+        </div>
+
+        <div class="stat-card">
+          <div class="stat-label">Service Health</div>
+          <div class="stat-value" style="color: var(--success); font-size: 1.4rem;">
+            Ready
+          </div>
+          <div class="stat-hint">Isolated HA container running</div>
         </div>
       </div>
 
       <!-- Getting-Started Checklist -->
       <div class="card">
-        <h3>🚀 Getting-Started Checklist</h3>
-        <p style="font-size: 0.85rem; margin-bottom: 0.75rem;">Step-by-step progress for setting up your household automation.</p>
+        <div class="card-header">
+          <div>
+            <h3 style="margin-bottom: 0.2rem;">Setup & Onboarding Checklist</h3>
+            <p style="font-size: 0.8125rem; margin-bottom: 0; color: var(--text-muted);">Step-by-step progress for configuring your smart household.</p>
+          </div>
+        </div>
 
         <div class="checklist-item">
           <span class="check-icon done">✓</span>
-          <div>
-            <strong>Household created</strong>
-            <div class="form-hint">Isolated namespace & Home Assistant initialized.</div>
+          <div style="flex: 1;">
+            <strong>Household container initialized</strong>
+            <div class="form-hint">Tenant workspace and dedicated isolated Home Assistant instance active.</div>
           </div>
         </div>
 
         <div class="checklist-item">
           <span class="check-icon ${hasDevice ? 'done' : 'todo'}">${hasDevice ? '✓' : '2'}</span>
-          <div>
-            <strong>Add your first device</strong>
-            <div class="form-hint">${hasDevice ? `Registered ${devices.length} device(s).` : '<a href="#/t/' + slug + '/devices/new" style="color: var(--primary);">Add an ESP32 or virtual device now →</a>'}</div>
+          <div style="flex: 1;">
+            <strong>Register smart devices</strong>
+            <div class="form-hint">
+              ${hasDevice 
+                ? `Successfully registered ${devices.length} hardware / virtual sensor(s).` 
+                : '<a href="#/t/' + slug + '/devices/new" class="inline-link">Add your first ESP32 microcontroller or virtual sensor now →</a>'}
+            </div>
           </div>
         </div>
 
         <div class="checklist-item">
           <span class="check-icon ${hasConnectedDevice ? 'done' : 'todo'}">${hasConnectedDevice ? '✓' : '3'}</span>
-          <div>
-            <strong>Connect device & verify telemetry</strong>
-            <div class="form-hint">${hasConnectedDevice ? 'Telemetry received and verified online!' : 'Run sketch or virtual device to transmit live sensor telemetry.'}</div>
+          <div style="flex: 1;">
+            <strong>Connect device & verify telemetry stream</strong>
+            <div class="form-hint">
+              ${hasConnectedDevice 
+                ? 'Telemetry stream verified. Real-time sensor readings active!' 
+                : 'Upload sketch or run one-device.js virtual sensor to transmit live MQTT telemetry.'}
+            </div>
           </div>
         </div>
 
         ${isFamily ? `
           <div class="checklist-item">
             <span class="check-icon ${hasMultiMembers ? 'done' : 'todo'}">${hasMultiMembers ? '✓' : '4'}</span>
-            <div>
-              <strong>Invite household members</strong>
-              <div class="form-hint">${hasMultiMembers ? `${members.length} members in household.` : '<a href="#/t/' + slug + '/members" style="color: var(--primary);">Add family members by email →</a>'}</div>
+            <div style="flex: 1;">
+              <strong>Invite household family members</strong>
+              <div class="form-hint">
+                ${hasMultiMembers 
+                  ? `${members.length} members collaborating in this household.` 
+                  : '<a href="#/t/' + slug + '/members" class="inline-link">Invite family members by email address →</a>'}
+              </div>
             </div>
           </div>
         ` : ''}
@@ -120,59 +194,50 @@ export async function renderHome(container, slug, router) {
       <!-- Home Assistant Access Panel -->
       <div class="card" id="ha-panel">
         <div class="card-header">
-          <h3>🏠 Home Assistant Access</h3>
+          <div>
+            <h3 style="margin-bottom: 0.2rem;">Home Assistant Automation Hub</h3>
+            <p style="font-size: 0.8125rem; margin-bottom: 0; color: var(--text-muted);">Your dedicated, isolated Home Assistant smart home dashboard.</p>
+          </div>
           <button id="toggle-ha-creds-btn" class="btn btn-secondary btn-sm">Show Credentials</button>
         </div>
 
-        <p style="font-size: 0.85rem;">Everyone in your household uses this one shared login for Home Assistant dashboards.</p>
+        <p style="font-size: 0.85rem; color: var(--text-secondary);">
+          All members in this household access this dedicated instance with shared credentials.
+        </p>
 
-        <div style="margin-top: 1rem;">
-          <div style="font-size: 0.85rem; margin-bottom: 0.35rem;"><strong>Home Assistant URL:</strong></div>
+        <div style="margin-top: var(--space-md);">
+          <div class="data-label" style="margin-bottom: 0.35rem;">Access URL</div>
           <div class="copy-box">
             <span id="ha-url-text">${tenant.url || 'http://' + slug + '.localtest.me:8123'}</span>
-            <div style="display: flex; gap: 0.25rem;">
-              <a href="${tenant.url || 'http://' + slug + '.localtest.me:8123'}" target="_blank" rel="noopener" class="btn btn-secondary btn-sm">Open ↗</a>
+            <div style="display: flex; gap: 0.35rem; flex-shrink: 0;">
+              <a href="${tenant.url || 'http://' + slug + '.localtest.me:8123'}" target="_blank" rel="noopener" class="btn btn-secondary btn-sm">
+                Open Dashboard ↗
+              </a>
               <button id="copy-ha-url" class="btn btn-secondary btn-sm">Copy</button>
             </div>
           </div>
 
-          <div id="ha-creds-details" style="display: none; margin-top: 0.75rem;">
-            <div style="font-size: 0.85rem; margin-bottom: 0.35rem;"><strong>Username:</strong></div>
-            <div class="copy-box">
-              <span id="ha-username-val">admin</span>
-              <button id="copy-ha-user" class="btn btn-secondary btn-sm">Copy</button>
-            </div>
+          <div id="ha-creds-details" style="display: none; margin-top: var(--space-lg);">
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: var(--space-md);">
+              <div>
+                <div class="data-label" style="margin-bottom: 0.35rem;">Username</div>
+                <div class="copy-box">
+                  <span id="ha-username-val">admin</span>
+                  <button id="copy-ha-user" class="btn btn-secondary btn-sm">Copy</button>
+                </div>
+              </div>
 
-            <div style="font-size: 0.85rem; margin-bottom: 0.35rem;"><strong>Password:</strong></div>
-            <div class="copy-box">
-              <span id="ha-password-val">•••••••••••••</span>
-              <div style="display: flex; gap: 0.25rem;">
-                <button id="reveal-ha-pass" class="btn btn-secondary btn-sm">Reveal</button>
-                <button id="copy-ha-pass" class="btn btn-secondary btn-sm">Copy</button>
+              <div>
+                <div class="data-label" style="margin-bottom: 0.35rem;">Password</div>
+                <div class="copy-box">
+                  <span id="ha-password-val">•••••••••••••</span>
+                  <div style="display: flex; gap: 0.35rem; flex-shrink: 0;">
+                    <button id="reveal-ha-pass" class="btn btn-secondary btn-sm">Reveal</button>
+                    <button id="copy-ha-pass" class="btn btn-secondary btn-sm">Copy</button>
+                  </div>
+                </div>
               </div>
             </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Usage & Limits -->
-      <div class="card">
-        <h3>📊 Household Capacity</h3>
-        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-top: 1rem;">
-          <div class="card" style="background: var(--bg-card); margin-bottom: 0;">
-            <div style="font-size: 0.8rem; color: var(--text-dim);">SEAT LIMIT</div>
-            <div style="font-size: 1.5rem; font-weight: 700; margin: 0.25rem 0;">
-              ${limits.seats.used} / ${limits.seats.max}
-            </div>
-            <div class="form-hint">${isFamily ? 'Family plan capacity' : 'Single plan (1 seat)'}</div>
-          </div>
-
-          <div class="card" style="background: var(--bg-card); margin-bottom: 0;">
-            <div style="font-size: 0.8rem; color: var(--text-dim);">DEVICE LIMIT</div>
-            <div style="font-size: 1.5rem; font-weight: 700; margin: 0.25rem 0;">
-              ${limits.devices.used} / ${limits.devices.max}
-            </div>
-            <div class="form-hint">Connected sensors & switches</div>
           </div>
         </div>
       </div>
@@ -229,4 +294,17 @@ export async function renderHome(container, slug, router) {
   container.querySelector('#copy-ha-pass').addEventListener('click', function() {
     copyToClipboard(loadedCreds?.password || 'CloudNest2026!', this);
   });
+
+  const workspaceSwitcher = container.querySelector('#workspace-switcher-select');
+  if (workspaceSwitcher) {
+    workspaceSwitcher.addEventListener('change', (e) => {
+      const selected = e.target.value;
+      if (selected === '__new__') {
+        router.navigate('#/create-household');
+      } else if (selected && selected !== slug) {
+        router.currentSlug = selected;
+        router.navigate(`#/t/${selected}`);
+      }
+    });
+  }
 }

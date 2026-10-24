@@ -9,7 +9,8 @@ export async function renderAddDevice(container, slug, router) {
   let step = 1;
   let deviceState = {
     name: '',
-    kind: 'sensor',
+    platform: 'esp32', // 'esp32' | 'virtual'
+    kind: 'sensor',    // 'sensor' | 'switch'
     wifiSsid: '',
     wifiPassword: '',
   };
@@ -25,7 +26,7 @@ export async function renderAddDevice(container, slug, router) {
     ]);
   } catch (err) {
     container.innerHTML = `
-      <div class="card">
+      <div class="card" style="max-width: 600px; margin: 2rem auto;">
         <div class="banner banner-danger">
           <strong>Error:</strong> ${err.message}
         </div>
@@ -52,23 +53,23 @@ export async function renderAddDevice(container, slug, router) {
 
   function render() {
     container.innerHTML = `
-      <div style="max-width: 720px; margin: 1.5rem auto;">
+      <div style="max-width: 760px; margin: 1.5rem auto;">
         <div class="stepper-nav">
           <div class="stepper-step ${step === 1 ? 'active' : ''} ${step > 1 ? 'completed' : ''}">
-            <div class="step-circle">1</div>
+            <div class="step-circle">${step > 1 ? '✓' : '1'}</div>
             <span class="step-label">Name & Type</span>
           </div>
           <div class="stepper-step ${step === 2 ? 'active' : ''} ${step > 2 ? 'completed' : ''}">
-            <div class="step-circle">2</div>
+            <div class="step-circle">${step > 2 ? '✓' : '2'}</div>
             <span class="step-label">Credentials</span>
           </div>
           <div class="stepper-step ${step === 3 ? 'active' : ''} ${step > 3 ? 'completed' : ''}">
-            <div class="step-circle">3</div>
+            <div class="step-circle">${step > 3 ? '✓' : '3'}</div>
             <span class="step-label">Connect</span>
           </div>
           <div class="stepper-step ${step === 4 ? 'active' : ''}">
             <div class="step-circle">4</div>
-            <span class="step-label">Connected</span>
+            <span class="step-label">Verified</span>
           </div>
         </div>
 
@@ -83,15 +84,15 @@ export async function renderAddDevice(container, slug, router) {
     else if (step === 4) renderStep4(stepContainer);
   }
 
-  // Step 1: Name and Kind
+  // Step 1: Platform, Capabilities & Name
   function renderStep1(el) {
     if (isLimitReached) {
       el.innerHTML = `
         <div class="card">
           <div class="banner banner-danger">
-            <strong>Plan Limit Reached:</strong> Your household has reached the maximum of ${limits.devices.max} devices for the ${tenantData.tenant.plan} plan.
+            <strong>Plan Limit Reached:</strong> Your household has reached the maximum quota of ${limits.devices.max} devices for the ${tenantData.tenant.plan} plan.
           </div>
-          <p>To register additional devices, upgrade your plan on the Plan & Billing page.</p>
+          <p>To register additional devices, upgrade your plan on the Plan & Quota page.</p>
           <div style="display: flex; gap: 0.5rem;">
             <a href="#/t/${slug}/plan" class="btn btn-primary">Upgrade Plan →</a>
             <a href="#/t/${slug}/devices" class="btn btn-secondary">Back to Devices</a>
@@ -103,15 +104,29 @@ export async function renderAddDevice(container, slug, router) {
 
     const warnings = configData.warnings || [];
 
+    function getPlaceholder() {
+      if (deviceState.platform === 'esp32') {
+        return deviceState.kind === 'sensor'
+          ? 'Living Room ESP32 Sensor'
+          : 'Living Room ESP32 Relay Switch';
+      } else {
+        return deviceState.kind === 'sensor'
+          ? 'Virtual Weather Simulator #1'
+          : 'Virtual Relay Actuator #1';
+      }
+    }
+
     el.innerHTML = `
       <div class="card">
-        <h2>Add a Smart Device</h2>
-        <p>A device is any ESP32 board, or a virtual sensor simulator running on your computer.</p>
+        <h2>Register New Smart Device</h2>
+        <p style="color: var(--text-muted); font-size: 0.9rem;">
+          Connect a physical ESP32 microcontroller or launch a virtual sensor simulator CLI.
+        </p>
 
         ${warnings.length > 0 ? `
           <div class="banner banner-warning">
             <div>
-              <strong>⚠️ Network Configuration Notice:</strong>
+              <strong>Network Notice:</strong>
               <div style="font-size: 0.8rem; margin-top: 0.25rem;">${warnings.join('<br>')}</div>
             </div>
           </div>
@@ -120,21 +135,109 @@ export async function renderAddDevice(container, slug, router) {
         <div id="step1-error" class="banner banner-danger" style="display: none;"></div>
 
         <form id="step1-form">
+          <!-- 1. Platform Choice: Hardware vs Virtual Simulator -->
           <div class="form-group">
-            <label for="dev-name">Device Name</label>
-            <input type="text" id="dev-name" required value="${deviceState.name}" placeholder="Living Room Temperature" maxlength="40">
-            <div class="form-hint">A friendly label (1-40 characters).</div>
+            <label style="font-weight: 700; color: var(--brand-navy); margin-bottom: 0.4rem; display: block;">
+              1. Select Device Platform
+            </label>
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: var(--space-md);">
+              <label class="platform-choice-card platform-card-option ${deviceState.platform === 'esp32' ? 'selected' : ''}">
+                <input type="radio" name="dev-platform-radio" value="esp32" ${deviceState.platform === 'esp32' ? 'checked' : ''} style="margin-top: 4px; accent-color: var(--brand-teal);">
+                <div class="choice-card-icon hardware">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <rect x="4" y="4" width="16" height="16" rx="2"/>
+                    <rect x="9" y="9" width="6" height="6"/>
+                    <line x1="9" y1="1" x2="9" y2="4"/>
+                    <line x1="15" y1="1" x2="15" y2="4"/>
+                    <line x1="9" y1="20" x2="9" y2="23"/>
+                    <line x1="15" y1="20" x2="15" y2="23"/>
+                    <line x1="20" y1="9" x2="23" y2="9"/>
+                    <line x1="20" y1="14" x2="23" y2="14"/>
+                    <line x1="1" y1="9" x2="4" y2="9"/>
+                    <line x1="1" y1="14" x2="4" y2="14"/>
+                  </svg>
+                </div>
+                <div style="flex: 1;">
+                  <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; margin-bottom: 0.25rem;">
+                    <strong style="color: var(--brand-navy); font-size: 0.95rem;">Physical ESP32 Microcontroller</strong>
+                    <span class="badge" style="background: rgba(28, 114, 147, 0.1); color: var(--brand-navy); font-size: 0.6875rem;">Hardware</span>
+                  </div>
+                  <div style="font-size: 0.8125rem; color: var(--text-muted); line-height: 1.45;">
+                    Flash Arduino C++ sketch (<code>.ino</code>) to your ESP32 board over 2.4 GHz WiFi.
+                  </div>
+                </div>
+              </label>
+
+              <label class="platform-choice-card platform-card-option ${deviceState.platform === 'virtual' ? 'selected' : ''}">
+                <input type="radio" name="dev-platform-radio" value="virtual" ${deviceState.platform === 'virtual' ? 'checked' : ''} style="margin-top: 4px; accent-color: var(--brand-teal);">
+                <div class="choice-card-icon virtual">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="4 17 10 11 4 5"/>
+                    <line x1="12" y1="19" x2="20" y2="19"/>
+                  </svg>
+                </div>
+                <div style="flex: 1;">
+                  <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; margin-bottom: 0.25rem;">
+                    <strong style="color: var(--brand-navy); font-size: 0.95rem;">Virtual Device (CLI Simulator)</strong>
+                    <span class="badge" style="background: rgba(46, 230, 214, 0.15); color: #0f766e; font-size: 0.6875rem;">Software Simulator</span>
+                  </div>
+                  <div style="font-size: 0.8125rem; color: var(--text-muted); line-height: 1.45;">
+                    No hardware needed. Run lightweight Node.js script (<code>one-device.js</code>) from your computer's terminal.
+                  </div>
+                </div>
+              </label>
+            </div>
           </div>
 
-          <div class="form-group">
-            <label for="dev-kind">Device Kind</label>
-            <select id="dev-kind">
-              <option value="sensor" ${deviceState.kind === 'sensor' ? 'selected' : ''}>Sensor (transmits temperature & humidity telemetry)</option>
-              <option value="switch" ${deviceState.kind === 'switch' ? 'selected' : ''}>Switch (toggles an LED / Relay via commands)</option>
-            </select>
+          <!-- 2. Device Capabilities & Role -->
+          <div class="form-group" style="margin-top: var(--space-xl);">
+            <label style="font-weight: 700; color: var(--brand-navy); margin-bottom: 0.4rem; display: block;">
+              2. Device Capability & Role
+            </label>
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: var(--space-md);">
+              <label class="platform-choice-card kind-card-option ${deviceState.kind === 'sensor' ? 'selected' : ''}">
+                <input type="radio" name="dev-kind-radio" value="sensor" ${deviceState.kind === 'sensor' ? 'checked' : ''} style="margin-top: 4px; accent-color: var(--brand-teal);">
+                <div class="choice-card-icon hardware">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M14 14.76V3.5a2.5 2.5 0 0 0-5 0v11.26a4.5 4.5 0 1 0 5 0z"/>
+                  </svg>
+                </div>
+                <div style="flex: 1;">
+                  <strong style="color: var(--brand-navy); font-size: 0.95rem;">Telemetry Sensor</strong>
+                  <div style="font-size: 0.8125rem; color: var(--text-muted); margin-top: 0.25rem; line-height: 1.45;">
+                    Periodically publishes sensor metrics (temperature, humidity, pressure) to MQTT.
+                  </div>
+                </div>
+              </label>
+
+              <label class="platform-choice-card kind-card-option ${deviceState.kind === 'switch' ? 'selected' : ''}">
+                <input type="radio" name="dev-kind-radio" value="switch" ${deviceState.kind === 'switch' ? 'checked' : ''} style="margin-top: 4px; accent-color: var(--brand-teal);">
+                <div class="choice-card-icon virtual">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <rect x="1" y="5" width="22" height="14" rx="7" ry="7"/>
+                    <circle cx="16" cy="12" r="3"/>
+                  </svg>
+                </div>
+                <div style="flex: 1;">
+                  <strong style="color: var(--brand-navy); font-size: 0.95rem;">Switch / Actuator</strong>
+                  <div style="font-size: 0.8125rem; color: var(--text-muted); margin-top: 0.25rem; line-height: 1.45;">
+                    Subscribes to commands to toggle a physical relay or virtual state (ON/OFF).
+                  </div>
+                </div>
+              </label>
+            </div>
           </div>
 
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 1.5rem;">
+          <!-- 3. Device Name -->
+          <div class="form-group" style="margin-top: var(--space-xl);">
+            <label for="dev-name" style="font-weight: 700; color: var(--brand-navy);">
+              3. Device Name
+            </label>
+            <input type="text" id="dev-name" required value="${deviceState.name}" placeholder="${getPlaceholder()}" maxlength="40">
+            <div class="form-hint">A friendly label for identification across dashboards and Home Assistant (1-40 characters).</div>
+          </div>
+
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-top: var(--space-2xl);">
             <a href="#/t/${slug}/devices" class="btn btn-secondary">Cancel</a>
             <button type="submit" id="step1-submit" class="btn btn-primary">
               Register & Generate Credentials →
@@ -147,13 +250,52 @@ export async function renderAddDevice(container, slug, router) {
     const form = el.querySelector('#step1-form');
     const submitBtn = el.querySelector('#step1-submit');
     const errorBanner = el.querySelector('#step1-error');
+    const nameInput = el.querySelector('#dev-name');
+    const platformInputs = el.querySelectorAll('input[name="dev-platform-radio"]');
+    const kindInputs = el.querySelectorAll('input[name="dev-kind-radio"]');
+
+    function syncPlaceholder() {
+      if (nameInput && !nameInput.value) {
+        nameInput.placeholder = getPlaceholder();
+      }
+    }
+
+    platformInputs.forEach(r => {
+      r.addEventListener('change', (e) => {
+        deviceState.platform = e.target.value;
+        el.querySelectorAll('.platform-card-option').forEach(card => {
+          const radio = card.querySelector('input[name="dev-platform-radio"]');
+          if (radio && radio.checked) {
+            card.classList.add('selected');
+          } else {
+            card.classList.remove('selected');
+          }
+        });
+        syncPlaceholder();
+      });
+    });
+
+    kindInputs.forEach(r => {
+      r.addEventListener('change', (e) => {
+        deviceState.kind = e.target.value;
+        el.querySelectorAll('.kind-card-option').forEach(card => {
+          const radio = card.querySelector('input[name="dev-kind-radio"]');
+          if (radio && radio.checked) {
+            card.classList.add('selected');
+          } else {
+            card.classList.remove('selected');
+          }
+        });
+        syncPlaceholder();
+      });
+    });
 
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
       errorBanner.style.display = 'none';
 
-      const nameVal = el.querySelector('#dev-name').value.trim();
-      const kindVal = el.querySelector('#dev-kind').value;
+      const nameVal = nameInput.value.trim();
+      const kindVal = deviceState.kind;
 
       submitBtn.disabled = true;
       submitBtn.textContent = 'Registering device...';
@@ -178,82 +320,150 @@ export async function renderAddDevice(container, slug, router) {
   function renderStep2(el) {
     const creds = registeredData?.credentials || {};
     const dev = registeredData?.device || {};
+    const isVirtual = deviceState.platform === 'virtual';
 
     el.innerHTML = `
       <div class="card">
-        <div class="banner banner-danger">
-          <strong>⚠️ Save These Credentials Now:</strong> These secrets are shown only once. They are never stored in browser history or logs.
+        <div class="banner banner-warning">
+          <strong>Important Security Notice:</strong> Store these credentials now. Device passwords are encrypted on the server and cannot be viewed again.
         </div>
 
-        <h2>Device Credentials: ${dev.name}</h2>
-        <p>Use these settings in your ESP32 sketch or virtual device config file.</p>
-
-        <div style="background: var(--bg-card); padding: 1rem; border-radius: var(--radius-sm); margin: 1rem 0;">
-          <div style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.25rem;">MQTT BROKER HOST & PORT</div>
-          <div class="copy-box">
-            <span>${creds.mqttHost || '127.0.0.1'}:${creds.mqttPort || 1883}</span>
-            <button id="copy-host-btn" class="btn btn-secondary btn-sm">Copy Host</button>
-          </div>
-
-          <div style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.25rem;">CLIENT ID & USERNAME</div>
-          <div class="copy-box">
-            <span>${creds.clientId || creds.device_id}</span>
-            <button id="copy-client-btn" class="btn btn-secondary btn-sm">Copy ID</button>
-          </div>
-
-          <div style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.25rem;">DEVICE SECRET (PASSWORD)</div>
-          <div class="copy-box">
-            <span style="color: var(--warning);">${creds.secret || creds.device_secret}</span>
-            <button id="copy-sec-btn" class="btn btn-secondary btn-sm">Copy Secret</button>
-          </div>
-
-          <div style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.25rem;">TELEMETRY TOPIC</div>
-          <div class="copy-box">
-            <span>${creds.telemetryTopic}</span>
-            <button id="copy-tel-btn" class="btn btn-secondary btn-sm">Copy Topic</button>
-          </div>
-
-          <div style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.25rem;">COMMAND TOPIC</div>
-          <div class="copy-box">
-            <span>${creds.commandTopic}</span>
-            <button id="copy-cmd-btn" class="btn btn-secondary btn-sm">Copy Topic</button>
-          </div>
+        <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.25rem;">
+          <h2 style="margin-bottom: 0;">Device Credentials: ${dev.name}</h2>
+          ${isVirtual ? `
+            <span class="badge" style="background: rgba(46, 230, 214, 0.15); color: #0f766e; font-size: 0.75rem; padding: 4px 10px;">
+              Virtual Simulator
+            </span>
+          ` : `
+            <span class="badge" style="background: rgba(28, 114, 147, 0.1); color: var(--brand-navy); font-size: 0.75rem; padding: 4px 10px;">
+              Physical ESP32
+            </span>
+          `}
         </div>
+        <p style="color: var(--text-muted); font-size: 0.9rem;">
+          These parameters authenticate your ${isVirtual ? 'virtual CLI simulator' : 'physical ESP32 board'} to the isolated MQTT broker.
+        </p>
 
-        <!-- Optional WiFi prefill for sketch -->
-        <div class="card" style="background: var(--bg-surface); border: 1px dashed var(--border); margin: 1.25rem 0;">
-          <h3>Optional: Embed WiFi into Downloadable Sketch</h3>
-          <p style="font-size: 0.8rem;">Your WiFi details are never sent to the server; they are embedded directly into the sketch inside your browser.</p>
-
-          <div class="form-row">
-            <div class="form-group" style="margin-bottom: 0;">
-              <label for="sketch-wifi-ssid">WiFi SSID (2.4 GHz)</label>
-              <input type="text" id="sketch-wifi-ssid" placeholder="HomeNetwork_2.4G" value="${deviceState.wifiSsid}">
-            </div>
-            <div class="form-group" style="margin-bottom: 0;">
-              <label for="sketch-wifi-pass">WiFi Password</label>
-              <input type="password" id="sketch-wifi-pass" placeholder="••••••••" value="${deviceState.wifiPassword}">
+        <div style="background: var(--bg-surface-alt); padding: var(--space-lg); border-radius: var(--radius-md); border: 1px solid var(--border); margin: var(--space-lg) 0;">
+          <div style="margin-bottom: var(--space-md);">
+            <div class="data-label" style="margin-bottom: 0.25rem;">MQTT Broker Host & Port</div>
+            <div class="copy-box">
+              <span>${creds.mqttHost || '127.0.0.1'}:${creds.mqttPort || 1883}</span>
+              <button id="copy-host-btn" class="btn btn-secondary btn-sm">Copy Host</button>
             </div>
           </div>
+
+          <div style="margin-bottom: var(--space-md);">
+            <div class="data-label" style="margin-bottom: 0.25rem;">Client ID / Device Identifier</div>
+            <div class="copy-box">
+              <span>${creds.clientId || creds.device_id}</span>
+              <button id="copy-client-btn" class="btn btn-secondary btn-sm">Copy ID</button>
+            </div>
+          </div>
+
+          <div style="margin-bottom: var(--space-md);">
+            <div class="data-label" style="margin-bottom: 0.25rem;">Device Secret (Password)</div>
+            <div class="copy-box">
+              <span style="color: var(--warning-text); font-weight: 700; font-family: var(--font-mono);">${creds.secret || creds.device_secret}</span>
+              <button id="copy-sec-btn" class="btn btn-secondary btn-sm">Copy Secret</button>
+            </div>
+          </div>
+
+          <div style="margin-bottom: var(--space-md);">
+            <div class="data-label" style="margin-bottom: 0.25rem;">Telemetry Topic (Publish)</div>
+            <div class="copy-box">
+              <span>${creds.telemetryTopic}</span>
+              <button id="copy-tel-btn" class="btn btn-secondary btn-sm">Copy Topic</button>
+            </div>
+          </div>
+
+          <div>
+            <div class="data-label" style="margin-bottom: 0.25rem;">Command Topic (Subscribe)</div>
+            <div class="copy-box">
+              <span>${creds.commandTopic}</span>
+              <button id="copy-cmd-btn" class="btn btn-secondary btn-sm">Copy Topic</button>
+            </div>
+          </div>
         </div>
 
-        <!-- Download Buttons -->
-        <div style="display: flex; gap: 0.75rem; flex-wrap: wrap; margin-bottom: 1.5rem;">
-          <button id="download-sketch-btn" class="btn btn-secondary">
-            📥 Download sift-device.ino (ESP32)
-          </button>
-          <button id="download-json-btn" class="btn btn-secondary">
-            📥 Download sift-device.json (Virtual)
-          </button>
-          <a href="/tools/one-device.js" download="one-device.js" class="btn btn-secondary">
-            📥 Download one-device.js (CLI)
-          </a>
-        </div>
+        ${!isVirtual ? `
+          <!-- Optional WiFi prefill for physical ESP32 sketch -->
+          <div class="card" style="background: var(--bg-surface); border: 1px dashed var(--border-strong); margin: var(--space-lg) 0; box-shadow: none;">
+            <h3 style="font-size: 1rem;">Optional: Embed WiFi into Downloadable Sketch</h3>
+            <p style="font-size: 0.8125rem; color: var(--text-muted);">
+              Credentials are embedded purely in your browser into the generated <code>.ino</code> file and are never sent to the server.
+            </p>
 
-        <div class="form-group">
-          <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer; user-select: none;">
-            <input type="checkbox" id="saved-creds-check">
-            <span>I have saved these credentials / downloaded my files.</span>
+            <div class="form-row">
+              <div class="form-group" style="flex: 1; margin-bottom: 0;">
+                <label for="sketch-wifi-ssid">WiFi SSID (2.4 GHz only)</label>
+                <input type="text" id="sketch-wifi-ssid" placeholder="HomeNetwork_2.4G" value="${deviceState.wifiSsid}">
+              </div>
+              <div class="form-group" style="flex: 1; margin-bottom: 0;">
+                <label for="sketch-wifi-pass">WiFi Password</label>
+                <div class="password-wrapper">
+                  <input type="password" id="sketch-wifi-pass" placeholder="••••••••" value="${deviceState.wifiPassword}">
+                  <button type="button" class="password-toggle-btn" id="toggle-wifi-pass" aria-label="Show password" title="Show password">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                      <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                      <circle cx="12" cy="12" r="3"/>
+                    </svg>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- ESP32 Download Config Files Bar -->
+          <div style="margin-bottom: var(--space-xl);">
+            <div style="display: flex; gap: var(--space-sm); flex-wrap: wrap; margin-bottom: var(--space-xs);">
+              <button id="download-sketch-btn" class="btn btn-primary btn-sm">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 4px;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                Download sift-device.ino (ESP32)
+              </button>
+              <button id="download-json-btn" class="btn btn-secondary btn-sm">
+                Download sift-device.json
+              </button>
+            </div>
+            <div class="form-hint">Open sift-device.ino in Arduino IDE to flash your physical ESP32 board.</div>
+          </div>
+        ` : `
+          <!-- Virtual Simulator Quick-Start Card -->
+          <div class="card" style="background: var(--bg-surface-alt); border: 1px solid var(--border); margin: var(--space-lg) 0;">
+            <h3 style="font-size: 1rem; color: var(--brand-navy); margin-bottom: 0.25rem;">Virtual Device Simulator Quick-Start</h3>
+            <p style="font-size: 0.8125rem; color: var(--text-muted); margin-bottom: var(--space-md);">
+              Download the configuration file and CLI simulator script to any directory on your computer:
+            </p>
+
+            <div style="display: flex; gap: var(--space-sm); flex-wrap: wrap; margin-bottom: var(--space-md);">
+              <button id="download-json-btn" class="btn btn-primary btn-sm">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 4px;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                Download sift-device.json
+              </button>
+              <a href="/tools/one-device.js" download="one-device.js" class="btn btn-secondary btn-sm">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 4px;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                Download one-device.js (CLI Simulator)
+              </a>
+            </div>
+
+            <div class="data-label" style="margin-bottom: 0.25rem;">Terminal Execution Command</div>
+            <div class="copy-box">
+              <code style="font-size: 0.8125rem;">npm install mqtt && node one-device.js --config .\\sift-device.json</code>
+              <button id="copy-run-cmd-step2" class="btn btn-secondary btn-sm">Copy Command</button>
+            </div>
+          </div>
+
+          <div style="margin-bottom: var(--space-xl);">
+            <button id="download-sketch-btn" class="btn btn-ghost btn-sm" style="font-size: 0.75rem; color: var(--text-muted);">
+              Need ESP32 Arduino sketch instead? Click here to download sift-device.ino
+            </button>
+          </div>
+        `}
+
+        <div class="form-group" style="padding-top: var(--space-sm); border-top: 1px solid var(--border-subtle);">
+          <label style="display: flex; align-items: center; gap: 0.6rem; cursor: pointer; user-select: none;">
+            <input type="checkbox" id="saved-creds-check" style="width: 18px; height: 18px; accent-color: var(--brand-teal);">
+            <span style="font-size: 0.9rem; color: var(--text-main);">I have saved these credentials or downloaded the configuration files.</span>
           </label>
         </div>
 
@@ -264,26 +474,40 @@ export async function renderAddDevice(container, slug, router) {
     `;
 
     // Copy handlers
-    el.querySelector('#copy-host-btn').addEventListener('click', function() {
+    el.querySelector('#copy-host-btn')?.addEventListener('click', function() {
       copyToClipboard(creds.mqttHost || '127.0.0.1', this);
     });
-    el.querySelector('#copy-client-btn').addEventListener('click', function() {
+    el.querySelector('#copy-client-btn')?.addEventListener('click', function() {
       copyToClipboard(creds.clientId || creds.device_id, this);
     });
-    el.querySelector('#copy-sec-btn').addEventListener('click', function() {
+    el.querySelector('#copy-sec-btn')?.addEventListener('click', function() {
       copyToClipboard(creds.secret || creds.device_secret, this);
     });
-    el.querySelector('#copy-tel-btn').addEventListener('click', function() {
+    el.querySelector('#copy-tel-btn')?.addEventListener('click', function() {
       copyToClipboard(creds.telemetryTopic, this);
     });
-    el.querySelector('#copy-cmd-btn').addEventListener('click', function() {
+    el.querySelector('#copy-cmd-btn')?.addEventListener('click', function() {
       copyToClipboard(creds.commandTopic, this);
+    });
+    el.querySelector('#copy-run-cmd-step2')?.addEventListener('click', function() {
+      copyToClipboard('npm install mqtt && node one-device.js --config .\\sift-device.json', this);
+    });
+
+    // WiFi password visibility toggle
+    const wifiPassInput = el.querySelector('#sketch-wifi-pass');
+    const toggleWifiBtn = el.querySelector('#toggle-wifi-pass');
+    toggleWifiBtn?.addEventListener('click', () => {
+      const isPass = wifiPassInput.type === 'password';
+      wifiPassInput.type = isPass ? 'text' : 'password';
+      toggleWifiBtn.setAttribute('aria-label', isPass ? 'Hide password' : 'Show password');
     });
 
     // Download sketch
-    el.querySelector('#download-sketch-btn').addEventListener('click', () => {
-      const ssid = el.querySelector('#sketch-wifi-ssid').value.trim();
-      const pass = el.querySelector('#sketch-wifi-pass').value;
+    el.querySelector('#download-sketch-btn')?.addEventListener('click', () => {
+      const ssidInput = el.querySelector('#sketch-wifi-ssid');
+      const passInput = el.querySelector('#sketch-wifi-pass');
+      const ssid = ssidInput ? ssidInput.value.trim() : deviceState.wifiSsid;
+      const pass = passInput ? passInput.value : deviceState.wifiPassword;
       deviceState.wifiSsid = ssid;
       deviceState.wifiPassword = pass;
 
@@ -308,7 +532,7 @@ export async function renderAddDevice(container, slug, router) {
     });
 
     // Download JSON config
-    el.querySelector('#download-json-btn').addEventListener('click', () => {
+    el.querySelector('#download-json-btn')?.addEventListener('click', () => {
       const configObj = {
         schema: 1,
         tenant: slug,
@@ -318,7 +542,7 @@ export async function renderAddDevice(container, slug, router) {
           kind: dev.kind,
         },
         mqtt: {
-          host: creds.mqttHost || '127.0.0.1',
+          host: (creds.mqttHost && creds.mqttHost !== 'host.wokwi.internal') ? creds.mqttHost : '127.0.0.1',
           port: creds.mqttPort || 1883,
           tls: false,
           clientId: creds.clientId,
@@ -349,34 +573,38 @@ export async function renderAddDevice(container, slug, router) {
   // Step 3: Connect & Poll Live
   function renderStep3(el) {
     const devId = registeredData?.device?.id;
-    let activeTab = 'esp32';
+    let activeTab = deviceState.platform === 'virtual' ? 'virtual' : 'esp32';
 
     el.innerHTML = `
       <div class="card">
         <h2>Connect Your Device</h2>
-        <p>Transmit your first telemetry payload to verify the connection.</p>
+        <p style="color: var(--text-muted); font-size: 0.9rem;">
+          Power on your hardware board or run the virtual device script to transmit initial telemetry.
+        </p>
 
-        <!-- Tabs -->
-        <div style="display: flex; gap: 0.5rem; margin-bottom: 1.25rem;">
+        <!-- Platform Tabs -->
+        <div style="display: flex; gap: var(--space-sm); margin-bottom: var(--space-lg);">
           <button id="tab-esp32" class="btn ${activeTab === 'esp32' ? 'btn-primary' : 'btn-secondary'} btn-sm">
-            I Have an ESP32 Board
+            ESP32 Microcontroller (Arduino)
           </button>
           <button id="tab-virtual" class="btn ${activeTab === 'virtual' ? 'btn-primary' : 'btn-secondary'} btn-sm">
-            Virtual Device (No Hardware)
+            Virtual Sensor (CLI Simulator)
           </button>
         </div>
 
         <div id="tab-instructions"></div>
 
         <!-- Live Connection Status Box -->
-        <div class="card" style="background: var(--bg-card); text-align: center; padding: 1.5rem; margin-top: 1.5rem;">
+        <div class="card" style="background: var(--bg-surface-alt); text-align: center; padding: var(--space-2xl); margin-top: var(--space-xl); border: 1px solid var(--border);">
           <div id="status-indicator">
             ${renderSpinner()}
-            <h3 style="margin-top: 0.75rem;">Waiting for the first message...</h3>
-            <p style="font-size: 0.85rem;">Checking status every 3 seconds. Start your device to transmit.</p>
+            <h3 style="margin-top: 1rem; color: var(--brand-navy);">Waiting for telemetry stream...</h3>
+            <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0;">
+              Live polling the MQTT broker every 3 seconds for initial payload.
+            </p>
           </div>
-          <div id="troubleshoot-hint" style="display: none; margin-top: 1rem;" class="banner banner-warning">
-            Still waiting after several attempts? Check our <a href="#/help/esp32" style="color: inherit; text-decoration: underline;">troubleshooting guide</a>.
+          <div id="troubleshoot-hint" style="display: none; margin-top: var(--space-lg);" class="banner banner-warning">
+            Still waiting after several cycles? Inspect our <a href="#/help/esp32" class="inline-link" style="margin-left: 0.25rem;">troubleshooting guide</a>.
           </div>
         </div>
       </div>
@@ -387,25 +615,26 @@ export async function renderAddDevice(container, slug, router) {
     function renderInstructions() {
       if (activeTab === 'esp32') {
         instructionsEl.innerHTML = `
-          <ol style="margin-left: 1.25rem; font-size: 0.85rem; line-height: 1.8;">
-            <li>Open the downloaded <code>sift-device.ino</code> in <strong>Arduino IDE 2</strong> (accept the folder prompt).</li>
-            <li>Ensure <strong>PubSubClient</strong> library (v2.8+) is installed via the Library Manager.</li>
-            <li>Select board: <strong>ESP32 Dev Module</strong> and select your board's COM port.</li>
-            <li>If you didn't embed WiFi credentials, fill in <code>WIFI_SSID</code> and <code>WIFI_PASSWORD</code>.</li>
-            <li>Click <strong>Upload</strong> (hold the BOOT button if upload doesn't start automatically).</li>
-            <li>Open <strong>Serial Monitor at 115200 baud</strong>. You should see <code>WiFi connected</code> then <code>Published (ok)</code>.</li>
-          </ol>
+          <div style="background: var(--bg-surface); padding: var(--space-lg); border-radius: var(--radius-sm); border: 1px solid var(--border-subtle);">
+            <ol style="margin-left: 1.25rem; font-size: 0.875rem; line-height: 1.9; color: var(--text-secondary);">
+              <li>Open the downloaded <code>sift-device.ino</code> file in <strong>Arduino IDE 2</strong>.</li>
+              <li>Ensure the <strong>PubSubClient</strong> library (v2.8+) is installed via <em>Tools → Manage Libraries</em>.</li>
+              <li>Select board: <strong>ESP32 Dev Module</strong> and pick your serial COM port.</li>
+              <li>Click <strong>Upload</strong> (press and hold physical BOOT button on board if prompt shows <code>Connecting......</code>).</li>
+              <li>Open <strong>Serial Monitor at 115200 baud</strong>. It will report <code>WiFi connected</code> then <code>Published (ok)</code>.</li>
+            </ol>
+          </div>
         `;
       } else {
         instructionsEl.innerHTML = `
-          <div style="font-size: 0.85rem; line-height: 1.7;">
-            <p>Ensure you have downloaded both <code>sift-device.json</code> and <code>one-device.js</code> into the same directory.</p>
-            <p>Open PowerShell or Terminal in that folder and run:</p>
-            <div class="copy-box" style="margin: 0.5rem 0;">
+          <div style="background: var(--bg-surface); padding: var(--space-lg); border-radius: var(--radius-sm); border: 1px solid var(--border-subtle); font-size: 0.875rem; line-height: 1.8; color: var(--text-secondary);">
+            <p style="margin-bottom: var(--space-sm);">Place <code>sift-device.json</code> and <code>one-device.js</code> into a local folder on your computer.</p>
+            <p style="margin-bottom: var(--space-xs);">Open Terminal / PowerShell in that directory and run:</p>
+            <div class="copy-box" style="margin: var(--space-sm) 0;">
               <code>npm install mqtt && node one-device.js --config .\\sift-device.json</code>
               <button id="copy-run-cmd" class="btn btn-secondary btn-sm">Copy</button>
             </div>
-            <p class="form-hint">The virtual device will connect, transmit simulated sensor telemetry, and listen for commands.</p>
+            <p class="form-hint">The virtual simulator streams simulated temperature and responds to relay commands.</p>
           </div>
         `;
         instructionsEl.querySelector('#copy-run-cmd')?.addEventListener('click', function() {
@@ -430,7 +659,7 @@ export async function renderAddDevice(container, slug, router) {
       renderInstructions();
     });
 
-    // Start live polling every 3 seconds (Section 8)
+
     let pollCount = 0;
     if (pollInterval) clearInterval(pollInterval);
 
@@ -453,40 +682,46 @@ export async function renderAddDevice(container, slug, router) {
           render();
         }
       } catch (err) {
-        // Continue polling silently
+        // Polling continues
       }
     }, 3000);
   }
 
-  // Step 4: Done
+  // Step 4: Done & Verified
   function renderStep4(el) {
     const dev = registeredData?.device || {};
     const haUrl = tenantData?.urls?.homeAssistant || `http://${slug}.localtest.me:8123`;
 
     el.innerHTML = `
-      <div class="card" style="text-align: center; padding: 2.5rem 1.5rem;">
-        <div style="font-size: 3rem; margin-bottom: 1rem;">🎉</div>
-        <h2>Device Connected!</h2>
-        <p>Telemetry was successfully received from <strong>${dev.name}</strong>.</p>
+      <div class="card" style="text-align: center; padding: var(--space-3xl) var(--space-xl);">
+        <div style="width: 52px; height: 52px; border-radius: 50%; background: var(--success-bg); color: var(--success); display: flex; align-items: center; justify-content: center; font-size: 1.5rem; margin: 0 auto var(--space-md) auto; border: 2px solid var(--success-border);">
+          ✓
+        </div>
+        <h2>${dev.name} is Online & Verified</h2>
+        <p style="color: var(--text-muted); font-size: 0.95rem; max-width: 460px; margin: 0 auto var(--space-xl) auto;">
+          Initial telemetry was successfully processed by the message broker and recorded in the household database.
+        </p>
 
-        <div class="card" style="background: var(--bg-card); max-width: 480px; margin: 1.5rem auto; text-align: left;">
-          <div style="font-size: 0.85rem; margin-bottom: 0.5rem;">
-            <strong>Status:</strong> <span class="badge badge-online">● Connected Online</span>
+        <div class="card" style="background: var(--bg-surface-alt); max-width: 480px; margin: 0 auto var(--space-xl) auto; text-align: left; border: 1px solid var(--border);">
+          <div style="font-size: 0.875rem; margin-bottom: 0.5rem;">
+            <span class="data-label">Live Status:</span>
+            <span class="badge badge-online">● Connected Online</span>
           </div>
-          <div style="font-size: 0.85rem; margin-bottom: 0.5rem;">
-            <strong>First Connected:</strong> ${new Date(dev.firstConnectedAt || Date.now()).toLocaleTimeString()}
+          <div style="font-size: 0.875rem; margin-bottom: 0.5rem;">
+            <span class="data-label">First Seen:</span>
+            <span>${new Date(dev.firstConnectedAt || Date.now()).toLocaleTimeString()}</span>
           </div>
           ${dev.lastValue ? `
-            <div style="font-size: 0.85rem; margin-bottom: 0.5rem;">
-              <strong>Latest Telemetry:</strong>
-              <code style="color: var(--info); font-family: var(--font-mono);">${JSON.stringify(dev.lastValue)}</code>
+            <div style="font-size: 0.875rem; margin-bottom: 0.5rem;">
+              <span class="data-label">Telemetry Received:</span>
+              <div class="terminal-box" style="margin-top: 0.35rem; padding: 0.6rem 0.85rem;">${JSON.stringify(dev.lastValue)}</div>
             </div>
           ` : ''}
 
           ${dev.kind === 'switch' ? `
             <div style="margin-top: 1rem; padding-top: 0.75rem; border-top: 1px solid var(--border);">
-              <strong>Test Command:</strong>
-              <div style="display: flex; gap: 0.5rem; margin-top: 0.5rem;">
+              <span class="data-label">Publish Relay Test:</span>
+              <div style="display: flex; gap: 0.5rem; margin-top: 0.4rem;">
                 <button id="send-on-btn" class="btn btn-secondary btn-sm">Turn ON</button>
                 <button id="send-off-btn" class="btn btn-secondary btn-sm">Turn OFF</button>
               </div>
@@ -494,16 +729,16 @@ export async function renderAddDevice(container, slug, router) {
           ` : ''}
         </div>
 
-        <div class="banner banner-info" style="max-width: 480px; margin: 0 auto 1.5rem auto; text-align: left;">
-          💡 <strong>Home Assistant Tip:</strong> Search for "${dev.name}" in Home Assistant under <em>Settings → Devices & services → Entities</em>.
+        <div class="banner banner-info" style="max-width: 480px; margin: 0 auto var(--space-xl) auto; text-align: left;">
+          <strong>Home Assistant Synchronization:</strong> This entity is automatically available in Home Assistant under <em>Settings → Devices & Entities</em>.
         </div>
 
-        <div style="display: flex; gap: 0.75rem; justify-content: center; flex-wrap: wrap;">
+        <div style="display: flex; gap: var(--space-md); justify-content: center; flex-wrap: wrap;">
           <a href="${haUrl}" target="_blank" rel="noopener" class="btn btn-primary">
             Open Home Assistant ↗
           </a>
           <a href="#/t/${slug}/devices" class="btn btn-secondary">
-            Back to Devices
+            View All Devices
           </a>
         </div>
       </div>

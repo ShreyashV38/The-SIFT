@@ -1,9 +1,10 @@
 // ---------------------------------------------------------------------------
-// CloudNest — Members Routes (Phase 6C Updated)
+// CloudNest — Members Routes (Phase 6C + Email Notifications)
 // ---------------------------------------------------------------------------
 // FR-13: member roles (owner, admin, member) with role checks
 // FR-12: seat limits enforced when adding members
 // FR-14: shared devices — all members of a tenant use the same devices
+// Email: notifications on add, remove, role change, invite
 // ---------------------------------------------------------------------------
 
 const { Router } = require('express');
@@ -12,6 +13,7 @@ const { requireAuth } = require('../middleware/auth');
 const { requireRole, ROLE_RANK } = require('../middleware/rbac');
 const config = require('../config');
 const logger = require('../logger');
+const emailService = require('../services/email');
 
 const router = Router();
 
@@ -65,8 +67,21 @@ router.post('/:slug/members', requireAuth, requireRole('admin'), (req, res) => {
   ).get(email.trim().toLowerCase());
 
   if (!account) {
+    // Send invite-to-register email to the unknown address (non-blocking)
+    const adder = db.prepare('SELECT display_name FROM accounts WHERE id = ?').get(req.user.accountId);
+    const portalUrl = `${req.protocol}://${req.get('host')}/`;
+    emailService.sendInviteToRegister(
+      email.trim().toLowerCase(),
+      req.tenant.display_name,
+      adder ? adder.display_name : 'A household admin',
+      portalUrl
+    ).catch(() => {});
+
     return res.status(404).json({
-      error: { code: 'ACCOUNT_NOT_FOUND', message: 'No active account found with this email. They must register first.' },
+      error: {
+        code: 'ACCOUNT_NOT_FOUND',
+        message: 'No active account found with this email. An invitation email has been sent to them to register.',
+      },
     });
   }
 
@@ -116,6 +131,16 @@ router.post('/:slug/members', requireAuth, requireRole('admin'), (req, res) => {
     role: cleanRole,
     addedBy: req.user.accountId,
   });
+
+  // Send "member added" email notification (non-blocking)
+  const adder = db.prepare('SELECT display_name FROM accounts WHERE id = ?').get(req.user.accountId);
+  emailService.sendMemberAdded(
+    account.email,
+    account.display_name,
+    req.tenant.display_name,
+    cleanRole,
+    adder ? adder.display_name : 'A household admin'
+  ).catch(() => {});
 
   res.status(201).json({
     message: 'Member added',
@@ -171,6 +196,12 @@ function handleMemberRoleUpdate(req, res) {
     targetAccountId: targetMembership.account_id,
     newRole: cleanRole,
   });
+
+  // Send role change email (non-blocking)
+  const targetAccount = db.prepare('SELECT email, display_name FROM accounts WHERE id = ?').get(targetMembership.account_id);
+  if (targetAccount) {
+    emailService.sendRoleChanged(targetAccount.email, targetAccount.display_name, req.tenant.display_name, cleanRole).catch(() => {});
+  }
 
   res.json({ message: 'Role updated', role: cleanRole });
 }
@@ -231,6 +262,12 @@ router.delete('/:slug/members/:accountId', requireAuth, requireRole('admin'), (r
     removedBy: req.user.accountId,
   });
 
+  // Send removal notification email (non-blocking)
+  const removedAccount = db.prepare('SELECT email, display_name FROM accounts WHERE id = ?').get(targetMembership.account_id);
+  if (removedAccount) {
+    emailService.sendMemberRemoved(removedAccount.email, removedAccount.display_name, req.tenant.display_name).catch(() => {});
+  }
+
   res.json({ message: 'Member removed' });
 });
 
@@ -271,7 +308,18 @@ router.post('/:slug/transfer-ownership', requireAuth, requireRole('owner'), (req
     to: accountId,
   });
 
+  // Email both old and new owner (non-blocking)
+  const oldOwner = db.prepare('SELECT email, display_name FROM accounts WHERE id = ?').get(req.user.accountId);
+  const newOwnerAccount = db.prepare('SELECT email, display_name FROM accounts WHERE id = ?').get(accountId);
+  if (newOwnerAccount) {
+    emailService.sendOwnershipTransferred(newOwnerAccount.email, newOwnerAccount.display_name, req.tenant.display_name, 'received').catch(() => {});
+  }
+  if (oldOwner) {
+    emailService.sendOwnershipTransferred(oldOwner.email, oldOwner.display_name, req.tenant.display_name, 'transferred').catch(() => {});
+  }
+
   res.json({ message: 'Ownership transferred' });
 });
 
 module.exports = router;
+

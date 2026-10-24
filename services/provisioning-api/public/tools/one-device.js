@@ -57,7 +57,13 @@ console.log('========================================================\n');
 let currentTemp = 24.0;
 let switchState = 'OFF';
 
-const brokerUrl = `${mqttCfg.tls ? 'mqtts' : 'mqtt'}://${mqttCfg.host}:${mqttCfg.port}`;
+// Resolve host: host.wokwi.internal only exists inside Wokwi QEMU; on native Windows/host OS use 127.0.0.1
+let brokerHost = mqttCfg.host || '127.0.0.1';
+if (brokerHost === 'host.wokwi.internal' || brokerHost === 'localhost') {
+  brokerHost = '127.0.0.1';
+}
+
+const brokerUrl = `${mqttCfg.tls ? 'mqtts' : 'mqtt'}://${brokerHost}:${mqttCfg.port || 1883}`;
 console.log(`MQTT connecting to ${brokerUrl}...`);
 
 const client = mqtt.connect(brokerUrl, {

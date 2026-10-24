@@ -45,16 +45,37 @@ const globalLimiter = rateLimit({
   max: config.rateLimitMaxRequests,
   standardHeaders: true,
   legacyHeaders: false,
+  skip: (req) => {
+    // Never rate-limit static assets, icons, health probes, or local loopback in dev
+    const isLoopback = req.ip === '127.0.0.1' || req.ip === '::1' || req.ip === '::ffff:127.0.0.1' || req.hostname === 'localhost';
+    if (process.env.NODE_ENV !== 'production' && isLoopback) {
+      return true;
+    }
+    return (
+      req.path.startsWith('/js/') ||
+      req.path.startsWith('/tools/') ||
+      req.path.endsWith('.css') ||
+      req.path.endsWith('.js') ||
+      req.path.endsWith('.jpg') ||
+      req.path.endsWith('.png') ||
+      req.path.endsWith('.ico') ||
+      req.path === '/' ||
+      req.path === '/health'
+    );
+  },
   message: { error: { code: 'RATE_LIMITED', message: 'Too many requests, please try again later.' } },
 });
 app.use(globalLimiter);
 
-// Specific stricter rate limiter for auth endpoints (5 attempts per min, section 6.2)
+// Specific rate limiter for auth endpoints (configurable, with dev loopback bypass)
 const authLimiter = rateLimit({
   windowMs: 60 * 1000,
-  max: 5,
+  max: config.loginRateLimitMaxRequests || 30,
   standardHeaders: true,
   legacyHeaders: false,
+  skip: (req) => {
+    return process.env.NODE_ENV !== 'production' && (req.ip === '127.0.0.1' || req.ip === '::1' || req.ip === '::ffff:127.0.0.1');
+  },
   message: { error: { code: 'RATE_LIMITED', message: 'Too many login attempts. Please wait 1 minute before trying again.' } },
 });
 
@@ -136,6 +157,10 @@ app.use('/v1/auth/login', authLimiter);
 app.use('/v1/auth', accountsRouter);
 app.use('/v1/accounts/login', authLimiter);
 app.use('/v1/accounts', accountsRouter);
+
+// OTP verification routes (2FA — no auth limiter, separate from login)
+app.post('/v1/auth/verify-otp', (req, res, next) => { req.url = '/verify-otp'; accountsRouter(req, res, next); });
+app.post('/v1/auth/resend-otp', (req, res, next) => { req.url = '/resend-otp'; accountsRouter(req, res, next); });
 
 // GET /v1/me alias pointing to accountsRouter /me
 app.get('/v1/me', (req, res, next) => {
@@ -304,6 +329,58 @@ if (process.env.NODE_ENV !== 'test') {
   internalApp.listen(config.internalPort, () => {
     logger.info(`CloudNest Internal API listening on port ${config.internalPort}`);
   });
+
+  // Live MQTT telemetry observer (enables real-time status updates in local dev and cluster)
+  if (config.mqttUrl) {
+    try {
+      const mqtt = require('mqtt');
+      const localMqtt = mqtt.connect(config.mqttUrl, {
+        clientId: 'provisioning-api-telemetry-observer',
+        reconnectPeriod: 3000,
+      });
+
+      localMqtt.on('connect', () => {
+        logger.info('Live MQTT telemetry observer connected', { url: config.mqttUrl });
+        localMqtt.subscribe('channels/+/messages', (err) => {
+          if (err) logger.warn('Failed to subscribe to MQTT telemetry channels', { error: err.message });
+        });
+      });
+
+      localMqtt.on('message', (topic, payload) => {
+        try {
+          const body = JSON.parse(payload.toString());
+          const devId = body.id || body.deviceId;
+          if (!devId) return;
+
+          const db = getDb();
+          const found = db.prepare(
+            "SELECT id FROM devices WHERE (id = ? OR mg_client_id = ?) AND status = 'active'"
+          ).get(devId, devId);
+
+          if (found) {
+            const now = new Date().toISOString();
+            db.prepare(`
+              UPDATE devices
+              SET first_connected_at = COALESCE(first_connected_at, ?),
+                  last_seen_at = ?,
+                  last_value_json = ?
+              WHERE id = ?
+            `).run(now, now, payload.toString().slice(0, 2048), found.id);
+            logger.info('Device telemetry recorded via MQTT observer', { deviceId: found.id, mgClientId: devId });
+          }
+        } catch (err) {
+          // ignore non-json
+        }
+      });
+
+      localMqtt.on('error', (err) => {
+        logger.debug('Local MQTT observer error (non-fatal)', { error: err.message });
+      });
+    } catch (err) {
+      logger.warn('Failed to initialize local MQTT observer', { error: err.message });
+    }
+  }
 }
 
 module.exports = { app, internalApp };
+

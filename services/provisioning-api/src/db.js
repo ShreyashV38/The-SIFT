@@ -92,6 +92,17 @@ function initSchema() {
     CREATE INDEX IF NOT EXISTS idx_memberships_tenant  ON memberships(tenant_id);
     CREATE INDEX IF NOT EXISTS idx_memberships_account ON memberships(account_id);
     CREATE INDEX IF NOT EXISTS idx_devices_tenant      ON devices(tenant_id);
+
+    -- OTP codes: email-based 2FA for login (FR-2FA)
+    CREATE TABLE IF NOT EXISTS otp_codes (
+      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      account_id  INTEGER NOT NULL REFERENCES accounts(id),
+      code        TEXT    NOT NULL,
+      expires_at  TEXT    NOT NULL,
+      used        INTEGER NOT NULL DEFAULT 0,
+      created_at  TEXT    NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_otp_account ON otp_codes(account_id);
   `);
 
   // Phase 6C migration: Ensure columns and updated check constraint exist in existing database

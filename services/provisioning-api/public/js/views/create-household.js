@@ -28,18 +28,18 @@ export async function renderCreateHousehold(container, router) {
 
   function render() {
     container.innerHTML = `
-      <div style="max-width: 680px; margin: 1.5rem auto;">
+      <div style="max-width: 720px; margin: 1.5rem auto;">
         <div class="stepper-nav">
           <div class="stepper-step ${step === 1 ? 'active' : ''} ${step > 1 ? 'completed' : ''}">
-            <div class="step-circle">1</div>
-            <span class="step-label">Name & Slug</span>
+            <div class="step-circle">${step > 1 ? '✓' : '1'}</div>
+            <span class="step-label">Name & Domain</span>
           </div>
           <div class="stepper-step ${step === 2 ? 'active' : ''} ${step > 2 ? 'completed' : ''}">
-            <div class="step-circle">2</div>
-            <span class="step-label">Choose Plan</span>
+            <div class="step-circle">${step > 2 ? '✓' : '2'}</div>
+            <span class="step-label">Select Plan</span>
           </div>
           <div class="stepper-step ${step === 3 ? 'active' : ''} ${step > 3 ? 'completed' : ''}">
-            <div class="step-circle">3</div>
+            <div class="step-circle">${step > 3 ? '✓' : '3'}</div>
             <span class="step-label">Provisioning</span>
           </div>
           <div class="stepper-step ${step === 4 ? 'active' : ''}">
@@ -63,46 +63,54 @@ export async function renderCreateHousehold(container, router) {
   function renderStep1(el) {
     el.innerHTML = `
       <div class="card">
-        <h2>Household Details</h2>
-        <p>Give your smart home instance a friendly name and a unique web identifier.</p>
+        <h2>Create a Household Workspace</h2>
+        <p style="color: var(--text-muted); font-size: 0.9rem;">
+          Give your smart home environment a friendly name and a dedicated subdomain.
+        </p>
 
         <div id="step1-error" class="banner banner-danger" style="display: none;"></div>
 
         <form id="step1-form">
           <div class="form-group">
-            <label for="house-name">Household Name</label>
-            <input type="text" id="house-name" required value="${formState.displayName}" placeholder="Maple Cottage" maxlength="50">
-            <div class="form-hint">A human-readable label shown on dashboards.</div>
+            <label for="house-name">Household Friendly Name</label>
+            <input type="text" id="house-name" required value="${formState.displayName}" placeholder="e.g. Maple Cottage" maxlength="50">
+            <div class="form-hint">Displayed at the top of your dashboard and member invites.</div>
           </div>
 
           <div class="form-group">
-            <label for="house-slug">Household Slug (Subdomain)</label>
-            <input type="text" id="house-slug" required value="${formState.slug}" placeholder="maple-cottage" pattern="^[a-z0-9][a-z0-9-]{1,29}[a-z0-9]$">
-            <div class="form-hint">3-30 chars, lowercase letters, numbers, hyphens. Used in your URL: &lt;slug&gt;.localtest.me</div>
+            <label for="house-slug">Household Subdomain Slug</label>
+            <input type="text" id="house-slug" required value="${formState.slug}" placeholder="e.g. maple-cottage" pattern="^[a-z0-9][a-z0-9-]{1,29}[a-z0-9]$">
+            <div class="form-hint">
+              Live Domain: <code id="slug-preview" style="background: none; font-weight: 700; color: var(--brand-teal);">${formState.slug || 'maple-cottage'}.localtest.me</code>
+            </div>
           </div>
 
-          <button type="submit" class="btn btn-primary">
-            Next: Select Plan →
-          </button>
+          <div style="margin-top: var(--space-xl); display: flex; justify-content: flex-end;">
+            <button type="submit" class="btn btn-primary">
+              Next: Select Capacity Tier →
+            </button>
+          </div>
         </form>
       </div>
     `;
 
     const nameInput = el.querySelector('#house-name');
     const slugInput = el.querySelector('#house-slug');
+    const slugPreview = el.querySelector('#slug-preview');
     const form = el.querySelector('#step1-form');
     const errorBanner = el.querySelector('#step1-error');
 
-    // Auto-generate slug from name if slug hasn't been manually edited
     nameInput.addEventListener('input', () => {
       if (!slugInput.dataset.manual) {
         const auto = nameInput.value.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 30);
         slugInput.value = auto;
+        if (slugPreview) slugPreview.textContent = (auto || 'subdomain') + '.localtest.me';
       }
     });
 
     slugInput.addEventListener('input', () => {
       slugInput.dataset.manual = 'true';
+      if (slugPreview) slugPreview.textContent = (slugInput.value.trim().toLowerCase() || 'subdomain') + '.localtest.me';
     });
 
     form.addEventListener('submit', (e) => {
@@ -111,7 +119,7 @@ export async function renderCreateHousehold(container, router) {
       const nameVal = nameInput.value.trim();
 
       if (!/^[a-z0-9][a-z0-9-]{1,29}[a-z0-9]$/.test(slugVal)) {
-        errorBanner.textContent = 'Slug must be 3-30 lowercase characters and numbers, without leading or trailing hyphens.';
+        errorBanner.textContent = 'Slug must be 3-30 lowercase alphanumeric characters and hyphens, without leading or trailing hyphens.';
         errorBanner.style.display = 'block';
         return;
       }
@@ -131,38 +139,69 @@ export async function renderCreateHousehold(container, router) {
 
     el.innerHTML = `
       <div class="card">
-        <h2>Choose Your Plan</h2>
-        <p>Select the capacity for household members and smart devices.</p>
+        <h2>Choose Capacity Tier</h2>
+        <p style="color: var(--text-muted); font-size: 0.9rem;">
+          Select the quota allocated for family members and smart devices in this household.
+        </p>
 
-        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 1rem; margin-bottom: 1.5rem;">
-          <div class="card plan-card ${formState.plan === 'single' ? 'plan-selected' : ''}" id="plan-single" style="cursor: pointer; border: 2px solid ${formState.plan === 'single' ? 'var(--primary)' : 'var(--border)'};">
-            <h3>Single Plan</h3>
-            <p style="font-size: 0.85rem;">Ideal for personal apartments and individual testing.</p>
-            <ul style="list-style: none; font-size: 0.85rem; margin: 1rem 0;">
-              <li>👤 <strong>${singleLimit.seats} Member</strong> (Owner)</li>
-              <li>⚡ <strong>${singleLimit.devices} Devices</strong> maximum</li>
-              <li>🔒 Isolated Namespace & Pod</li>
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: var(--space-lg); margin-bottom: var(--space-xl);">
+          <!-- Single Card -->
+          <div class="card plan-card ${formState.plan === 'single' ? 'plan-selected' : ''}" id="plan-single" style="margin-bottom: 0; cursor: pointer;">
+            <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 0.35rem;">
+              <h3 style="margin-bottom: 0;">Single Plan</h3>
+              <span class="badge ${formState.plan === 'single' ? 'badge-online' : 'badge-offline'}">
+                ${formState.plan === 'single' ? '● Selected' : 'Select'}
+              </span>
+            </div>
+            <p style="font-size: 0.8125rem; color: var(--text-muted);">Ideal for personal apartments and individual testing.</p>
+
+            <ul class="feature-list" style="margin: var(--space-md) 0;">
+              <li>
+                <span style="color: var(--brand-teal); font-weight: 700;">✓</span>
+                <span><strong>${singleLimit.seats} Member</strong> (Household Owner)</span>
+              </li>
+              <li>
+                <span style="color: var(--brand-teal); font-weight: 700;">✓</span>
+                <span><strong>${singleLimit.devices} Smart Devices</strong> maximum</span>
+              </li>
+              <li>
+                <span style="color: var(--brand-teal); font-weight: 700;">✓</span>
+                <span>Isolated Home Assistant Pod</span>
+              </li>
             </ul>
-            <span class="badge ${formState.plan === 'single' ? 'badge-online' : 'badge-offline'}">
-              ${formState.plan === 'single' ? 'Selected' : 'Select'}
-            </span>
           </div>
 
-          <div class="card plan-card ${formState.plan === 'family' ? 'plan-selected' : ''}" id="plan-family" style="cursor: pointer; border: 2px solid ${formState.plan === 'family' ? 'var(--primary)' : 'var(--border)'};">
-            <h3>Family Plan</h3>
-            <p style="font-size: 0.85rem;">Collaborative household with multi-user access.</p>
-            <ul style="list-style: none; font-size: 0.85rem; margin: 1rem 0;">
-              <li>👥 <strong>${familyLimit.seats} Members</strong> (Shared Home)</li>
-              <li>⚡ <strong>${familyLimit.devices} Devices</strong> maximum</li>
-              <li>🔒 Isolated Namespace & Pod</li>
+          <!-- Family Card -->
+          <div class="card plan-card ${formState.plan === 'family' ? 'plan-selected' : ''}" id="plan-family" style="margin-bottom: 0; cursor: pointer;">
+            <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 0.35rem;">
+              <div>
+                <h3 style="margin-bottom: 0;">Family Plan</h3>
+                <span style="font-size: 0.68rem; color: var(--brand-teal); font-weight: 700; text-transform: uppercase;">Multi-User</span>
+              </div>
+              <span class="badge ${formState.plan === 'family' ? 'badge-online' : 'badge-offline'}">
+                ${formState.plan === 'family' ? '● Selected' : 'Select'}
+              </span>
+            </div>
+            <p style="font-size: 0.8125rem; color: var(--text-muted);">Collaborative household with multi-user access.</p>
+
+            <ul class="feature-list" style="margin: var(--space-md) 0;">
+              <li>
+                <span style="color: var(--brand-teal); font-weight: 700;">✓</span>
+                <span><strong>${familyLimit.seats} Members</strong> (Invite Family)</span>
+              </li>
+              <li>
+                <span style="color: var(--brand-teal); font-weight: 700;">✓</span>
+                <span><strong>${familyLimit.devices} Smart Devices</strong> maximum</span>
+              </li>
+              <li>
+                <span style="color: var(--brand-teal); font-weight: 700;">✓</span>
+                <span>Role-based administration</span>
+              </li>
             </ul>
-            <span class="badge ${formState.plan === 'family' ? 'badge-online' : 'badge-offline'}">
-              ${formState.plan === 'family' ? 'Selected' : 'Select'}
-            </span>
           </div>
         </div>
 
-        <div style="display: flex; gap: 0.75rem;">
+        <div style="display: flex; justify-content: space-between; align-items: center;">
           <button type="button" id="step2-back" class="btn btn-secondary">← Back</button>
           <button type="button" id="step2-next" class="btn btn-primary">Start Provisioning →</button>
         </div>
@@ -194,27 +233,29 @@ export async function renderCreateHousehold(container, router) {
   // Step 3: Live progress
   function renderStep3(el) {
     el.innerHTML = `
-      <div class="card" style="text-align: center; padding: 2.5rem 1.5rem;">
-        <span class="spinner" style="width: 42px; height: 42px; margin-bottom: 1.5rem;"></span>
+      <div class="card" style="text-align: center; padding: var(--space-3xl) var(--space-xl);">
+        <span class="spinner" style="width: 44px; height: 44px; margin-bottom: var(--space-lg);"></span>
         <h2>Creating ${formState.displayName}...</h2>
-        <p>Allocating isolated namespace, IoT workspace channels, and launching Home Assistant.</p>
+        <p style="color: var(--text-muted); font-size: 0.95rem;">
+          Allocating isolated namespace, creating IoT channels, and launching dedicated Home Assistant.
+        </p>
 
-        <div id="live-steps" style="text-align: left; max-width: 440px; margin: 1.5rem auto;">
+        <div id="live-steps" style="text-align: left; max-width: 460px; margin: var(--space-2xl) auto 0 auto; background: var(--bg-surface-alt); padding: var(--space-lg); border-radius: var(--radius-md); border: 1px solid var(--border);">
           <div class="checklist-item">
             <span class="check-icon done">✓</span>
-            <span>Allocating Tenant Workspace in Magistrala</span>
+            <span style="font-size: 0.875rem;">Allocating Tenant Workspace & Channel Topology</span>
           </div>
           <div class="checklist-item">
             <span class="check-icon done">✓</span>
-            <span>Generating Telemetry & Command Channels</span>
+            <span style="font-size: 0.875rem;">Generating MQTT Telemetry & Command Channels</span>
           </div>
           <div class="checklist-item">
-            <span class="check-icon todo" id="step-ns">⏳</span>
-            <span>Enforcing NetworkPolicies & Quotas</span>
+            <span class="check-icon done">✓</span>
+            <span style="font-size: 0.875rem;">Enforcing RBAC Access Policies & Resource Quotas</span>
           </div>
           <div class="checklist-item">
-            <span class="check-icon todo" id="step-ha">⏳</span>
-            <span>Spinning Up Home Assistant Pod</span>
+            <span class="check-icon done">✓</span>
+            <span style="font-size: 0.875rem;">Spinning Up Isolated Home Assistant Pod</span>
           </div>
         </div>
       </div>
@@ -255,40 +296,50 @@ export async function renderCreateHousehold(container, router) {
     el.innerHTML = `
       <div class="card">
         <div class="banner banner-success">
-          🎉 <strong>Household Ready!</strong> Your smart home instance has been provisioned.
+          <strong>Household Initialized:</strong> Your isolated smart home instance has been provisioned.
         </div>
 
         <h2>${tenant.displayName} (${tenant.slug})</h2>
-        <p>Your Home Assistant instance is running and connected to the IoT message broker.</p>
+        <p style="color: var(--text-muted); font-size: 0.9rem;">
+          Your Home Assistant instance is operational and connected to the IoT telemetry message broker.
+        </p>
 
-        <div class="card" style="background: var(--bg-card); margin: 1.25rem 0;">
-          <h3>Home Assistant Access</h3>
-          <p style="font-size: 0.85rem; margin-bottom: 1rem;">All members of your household log in with these shared credentials:</p>
+        <div class="card" style="background: var(--bg-surface-alt); margin: var(--space-lg) 0; border: 1px solid var(--border);">
+          <h3 style="margin-bottom: var(--space-xs);">Home Assistant Shared Credentials</h3>
+          <p style="font-size: 0.8125rem; color: var(--text-muted); margin-bottom: var(--space-md);">
+            All members of your household log in with these shared credentials:
+          </p>
 
-          <div style="font-size: 0.85rem; margin-bottom: 0.5rem;"><strong>URL:</strong></div>
-          <div class="copy-box">
-            <span>${haUrl}</span>
-            <button id="copy-url-btn" class="btn btn-secondary btn-sm">Copy</button>
+          <div style="margin-bottom: var(--space-sm);">
+            <div class="data-label" style="margin-bottom: 0.25rem;">Access URL</div>
+            <div class="copy-box">
+              <span>${haUrl}</span>
+              <button id="copy-url-btn" class="btn btn-secondary btn-sm">Copy</button>
+            </div>
           </div>
 
-          <div style="font-size: 0.85rem; margin-bottom: 0.5rem;"><strong>Username:</strong></div>
-          <div class="copy-box">
-            <span>${haCreds.username || 'admin'}</span>
-            <button id="copy-user-btn" class="btn btn-secondary btn-sm">Copy</button>
+          <div style="margin-bottom: var(--space-sm);">
+            <div class="data-label" style="margin-bottom: 0.25rem;">Username</div>
+            <div class="copy-box">
+              <span>${haCreds.username || 'admin'}</span>
+              <button id="copy-user-btn" class="btn btn-secondary btn-sm">Copy</button>
+            </div>
           </div>
 
-          <div style="font-size: 0.85rem; margin-bottom: 0.5rem;"><strong>Password:</strong></div>
-          <div class="copy-box">
-            <span id="ha-pass-mask">•••••••••••••</span>
-            <span id="ha-pass-clear" style="display: none;">${haCreds.password || 'CloudNest2026!'}</span>
-            <div style="display: flex; gap: 0.25rem;">
-              <button id="reveal-pass-btn" class="btn btn-secondary btn-sm">Show</button>
-              <button id="copy-pass-btn" class="btn btn-secondary btn-sm">Copy</button>
+          <div>
+            <div class="data-label" style="margin-bottom: 0.25rem;">Password</div>
+            <div class="copy-box">
+              <span id="ha-pass-mask">•••••••••••••</span>
+              <span id="ha-pass-clear" style="display: none; font-weight: 700; color: var(--brand-teal);">${haCreds.password || 'CloudNest2026!'}</span>
+              <div style="display: flex; gap: 0.35rem; flex-shrink: 0;">
+                <button id="reveal-pass-btn" class="btn btn-secondary btn-sm">Show</button>
+                <button id="copy-pass-btn" class="btn btn-secondary btn-sm">Copy</button>
+              </div>
             </div>
           </div>
         </div>
 
-        <div style="display: flex; gap: 0.75rem; flex-wrap: wrap;">
+        <div style="display: flex; gap: var(--space-md); flex-wrap: wrap;">
           <a href="${haUrl}" target="_blank" rel="noopener" class="btn btn-secondary">
             Open Home Assistant ↗
           </a>

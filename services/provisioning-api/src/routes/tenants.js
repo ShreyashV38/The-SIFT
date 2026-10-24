@@ -14,6 +14,7 @@ const { requireAuth, parseCookies } = require('../middleware/auth');
 const { requireRole } = require('../middleware/rbac');
 const magistrala = require('../services/magistrala');
 const kubernetes = require('../services/kubernetes');
+const emailService = require('../services/email');
 const config = require('../config');
 const logger = require('../logger');
 
@@ -164,6 +165,12 @@ router.post('/', (req, res, next) => {
       username: config.haUsername,
       password: config.haPassword,
     };
+
+    // Send household created confirmation email (non-blocking)
+    const ownerAccount = db.prepare('SELECT email, display_name FROM accounts WHERE id = ?').get(accountId);
+    if (ownerAccount) {
+      emailService.sendHouseholdCreated(ownerAccount.email, ownerAccount.display_name, displayName.trim(), plan).catch(() => {});
+    }
 
     res.status(201).json({
       tenant: {

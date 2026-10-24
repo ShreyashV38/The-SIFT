@@ -108,6 +108,14 @@ export const api = {
     return this.post('/v1/auth/login', { email, password });
   },
 
+  async verifyOtp(otpToken, code) {
+    return this.post('/v1/auth/verify-otp', { otpToken, code });
+  },
+
+  async resendOtp(otpToken) {
+    return this.post('/v1/auth/resend-otp', { otpToken });
+  },
+
   async logout() {
     return this.post('/v1/auth/logout', {});
   },

@@ -49,53 +49,49 @@ class Router {
   renderHeader() {
     if (!this.headerNav) return;
 
+    const currentHash = window.location.hash || '#/';
+
     if (!this.session) {
+      const isLogin = currentHash === '#/login';
+      const isRegister = currentHash === '#/register';
+      const isHelp = currentHash.startsWith('#/help');
+
       this.headerNav.innerHTML = `
-        <a href="#/login" class="nav-link">Sign In</a>
-        <a href="#/register" class="btn btn-primary btn-sm">Register</a>
-        <a href="#/help/esp32" class="nav-link">Help</a>
+        <a href="#/login" class="nav-link ${isLogin ? 'active' : ''}">Sign In</a>
+        <a href="#/register" class="btn btn-primary btn-sm" style="${isRegister ? 'box-shadow: 0 0 0 2px var(--brand-cyan);' : ''}">Register</a>
+        <a href="#/help/esp32" class="nav-link ${isHelp ? 'active' : ''}">Help</a>
       `;
       return;
     }
 
     const tenants = this.session.tenants || [];
     const user = this.session.account || {};
+    const userName = user.displayName || user.email || 'User';
+    const userInitial = userName.charAt(0).toUpperCase();
 
-    let switcherHtml = '';
-    if (tenants.length > 1) {
-      switcherHtml = `
-        <select id="tenant-switcher-select" class="household-switcher" aria-label="Select active household">
-          ${tenants.map(t => `<option value="${t.slug}" ${t.slug === this.currentSlug ? 'selected' : ''}>${t.displayName}</option>`).join('')}
-        </select>
-      `;
-    } else if (tenants.length === 1) {
-      switcherHtml = `<span style="font-size: 0.85rem; color: var(--text-muted);">${tenants[0].displayName}</span>`;
-    }
+    const isDashboard = Boolean(this.currentSlug && currentHash === `#/t/${this.currentSlug}`);
+    const isDevices = Boolean(this.currentSlug && currentHash.startsWith(`#/t/${this.currentSlug}/devices`));
+    const isNew = currentHash === '#/create-household';
+    const isHelp = currentHash.startsWith('#/help');
 
     this.headerNav.innerHTML = `
-      ${switcherHtml}
       ${this.currentSlug ? `
-        <a href="#/t/${this.currentSlug}" class="nav-link">Dashboard</a>
-        <a href="#/t/${this.currentSlug}/devices" class="nav-link">Devices</a>
+        <a href="#/t/${this.currentSlug}" class="nav-link ${isDashboard ? 'active' : ''}">Dashboard</a>
+        <a href="#/t/${this.currentSlug}/devices" class="nav-link ${isDevices ? 'active' : ''}">Devices</a>
       ` : ''}
-      <a href="#/create-household" class="nav-link">+ New Household</a>
-      <a href="#/help/esp32" class="nav-link">Help</a>
-      <span style="font-size: 0.85rem; color: var(--text-muted); margin-left: 0.25rem;">
-        👤 ${user.displayName || user.email}
-      </span>
-      <button id="logout-btn" class="btn btn-secondary btn-sm">
+      <a href="#/create-household" class="nav-link ${isNew ? 'active' : ''}">+ New</a>
+      <a href="#/help/esp32" class="nav-link ${isHelp ? 'active' : ''}">Help</a>
+      <div class="user-chip" title="Logged in as ${userName}">
+        <span class="user-avatar-initial">${userInitial}</span>
+        <span style="max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${userName}</span>
+      </div>
+      <button id="logout-btn" class="btn btn-secondary btn-sm" style="background: rgba(255,255,255,0.06); color: var(--text-nav); border-color: rgba(255,255,255,0.15);">
         Sign Out
       </button>
     `;
 
     // Tenant switcher change listener
-    const select = this.headerNav.querySelector('#tenant-switcher-select');
-    if (select) {
-      select.addEventListener('change', (e) => {
-        this.currentSlug = e.target.value;
-        this.navigate(`#/t/${this.currentSlug}`);
-      });
-    }
+
 
     // Logout listener
     const logoutBtn = this.headerNav.querySelector('#logout-btn');
@@ -125,6 +121,7 @@ class Router {
 
   async handleRoute() {
     window.scrollTo(0, 0);
+    this.renderHeader();
     const hash = window.location.hash || '#/';
 
     // Public Help route
@@ -235,10 +232,16 @@ class Router {
 
     // Fallback: 404
     this.container.innerHTML = `
-      <div class="card" style="text-align: center; padding: 3rem 1.5rem;">
+      <div class="empty-state">
+        <div class="empty-state-icon">
+          <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="var(--text-dim)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="11" cy="11" r="8"/>
+            <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+          </svg>
+        </div>
         <h2>Page Not Found</h2>
         <p>The requested route does not exist.</p>
-        <a href="#/" class="btn btn-primary" style="margin-top: 1rem;">Go to Home</a>
+        <a href="#/" class="btn btn-primary" style="margin-top: var(--space-lg);">Go to Home</a>
       </div>
     `;
   }

@@ -17,6 +17,7 @@
     "jsonwebtoken": "^9.0.2",
     "mqtt": "^5.10.3",
     "node-fetch": "^3.3.2",
+    "nodemailer": "^10.2.1",
     "uuid": "^10.0.0",
     "winston": "^3.17.0"
   }

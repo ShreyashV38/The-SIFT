@@ -64,13 +64,21 @@ const config = {
   // Device status offline threshold in seconds
   offlineAfterSeconds: parseInt(process.env.OFFLINE_AFTER_SECONDS || '90', 10),
 
+  // Email / Gmail SMTP (Nodemailer)
+  emailUser: process.env.GMAIL_USER || 'nitollwaat@gmail.com',
+  emailPass: process.env.GMAIL_APP_PASSWORD || 'ayqlzdpeubunibya',
+
+  // OTP (Email 2FA)
+  otpLength: 6,
+  otpExpirySeconds: parseInt(process.env.OTP_EXPIRY_SECONDS || '300', 10), // 5 minutes
+
   // Reserved slugs that cannot be used for tenant households
   reservedSlugs: ['app', 'portal', 'www', 'admin', 'api', 'platform', 'observability', 'magistrala', 'thingsboard'],
 
-  // Rate limiting
+  // Rate limiting (generous in development, customizable via env)
   rateLimitWindowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS || '900000', 10),   // 15 min
-  rateLimitMaxRequests: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS || '120', 10),
-  loginRateLimitMaxRequests: parseInt(process.env.LOGIN_RATE_LIMIT_MAX || '10', 10),
+  rateLimitMaxRequests: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS || '1000', 10),
+  loginRateLimitMaxRequests: parseInt(process.env.LOGIN_RATE_LIMIT_MAX || '30', 10),
 };
 
 module.exports = config;
