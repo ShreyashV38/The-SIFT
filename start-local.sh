@@ -21,7 +21,7 @@ NC='\033[0m'
 
 echo ""
 echo -e "${CYAN}============================================${NC}"
-echo -e "${CYAN}  CloudNest — Local Environment Bootstrap${NC}"
+echo -e "${CYAN}  The SIFT — Local Environment Bootstrap${NC}"
 echo -e "${CYAN}============================================${NC}"
 echo ""
 
@@ -162,7 +162,7 @@ cd "$API_DIR"
 
 echo ""
 echo -e "${GREEN}============================================${NC}"
-echo -e "${GREEN}  CloudNest is starting!${NC}"
+echo -e "${GREEN}  The SIFT is starting!${NC}"
 echo -e "${GREEN}============================================${NC}"
 echo ""
 echo -e "${CYAN}  Dashboard:  http://localhost:3000${NC}"

@@ -15,7 +15,7 @@ $ErrorActionPreference = "Continue"
 
 Write-Host ""
 Write-Host "============================================" -ForegroundColor Cyan
-Write-Host "  CloudNest — Local Environment Bootstrap" -ForegroundColor Cyan
+Write-Host "  The SIFT — Local Environment Bootstrap" -ForegroundColor Cyan
 Write-Host "============================================" -ForegroundColor Cyan
 Write-Host ""
 
@@ -169,7 +169,7 @@ Push-Location $apiDir
 
 Write-Host ""
 Write-Host "============================================" -ForegroundColor Green
-Write-Host "  CloudNest is starting!" -ForegroundColor Green
+Write-Host "  The SIFT is starting!" -ForegroundColor Green
 Write-Host "============================================" -ForegroundColor Green
 Write-Host ""
 Write-Host "  Dashboard:  http://localhost:3000" -ForegroundColor Cyan

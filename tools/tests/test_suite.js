@@ -68,7 +68,7 @@ async function runTest(testId, description, fn) {
 
 async function main() {
   console.log('========================================================');
-  console.log(` CloudNest Verification & Security Test Suite`);
+  console.log(` The SIFT Verification & Security Test Suite`);
   console.log(` Target: ${BASE_URL}`);
   console.log('========================================================\n');
 
