@@ -1,5 +1,5 @@
 // ---------------------------------------------------------------------------
-// CloudNest — Members Routes
+// CloudNest — Members Routes (Phase 6C Updated)
 // ---------------------------------------------------------------------------
 // FR-13: member roles (owner, admin, member) with role checks
 // FR-12: seat limits enforced when adding members
@@ -34,47 +34,56 @@ router.get('/:slug/members', requireAuth, requireRole('member'), (req, res) => {
 // POST /v1/tenants/:slug/members
 // Add a member directly. Requires admin or owner role.
 // Body: { email, role? }
-// FR-12: enforces seat limits
 router.post('/:slug/members', requireAuth, requireRole('admin'), (req, res) => {
-  const { email, role = 'member' } = req.body;
+  const { email, role = 'member' } = req.body || {};
 
   if (!email) {
-    return res.status(400).json({ error: 'email is required' });
+    return res.status(400).json({
+      error: { code: 'VALIDATION', message: 'email is required' },
+    });
   }
 
-  // Validate role
-  if (!['admin', 'member'].includes(role)) {
-    return res.status(400).json({ error: 'role must be admin or member' });
+  const cleanRole = role.toLowerCase();
+  if (!['admin', 'member'].includes(cleanRole)) {
+    return res.status(400).json({
+      error: { code: 'VALIDATION', message: 'role must be admin or member' },
+    });
   }
 
   // Only owners can add admins
-  if (role === 'admin' && req.membership.role !== 'owner') {
-    return res.status(403).json({ error: 'Only owners can add admins' });
+  if (cleanRole === 'admin' && req.membership.role !== 'owner') {
+    return res.status(403).json({
+      error: { code: 'FORBIDDEN', message: 'Only owners can add admins' },
+    });
   }
 
   const db = getDb();
 
-  // Look up the target account
+  // Look up target account
   const account = db.prepare(
     "SELECT id, email, display_name FROM accounts WHERE email = ? AND status = 'active'"
-  ).get(email);
+  ).get(email.trim().toLowerCase());
 
   if (!account) {
-    return res.status(404).json({ error: 'No active account found with this email. They must register first.' });
+    return res.status(404).json({
+      error: { code: 'ACCOUNT_NOT_FOUND', message: 'No active account found with this email. They must register first.' },
+    });
   }
 
   // Check if already a member
   const existingMembership = db.prepare(
-    "SELECT id, status FROM memberships WHERE tenant_id = ? AND account_id = ?"
+    'SELECT id, status FROM memberships WHERE tenant_id = ? AND account_id = ?'
   ).get(req.tenant.id, account.id);
 
   if (existingMembership && existingMembership.status === 'active') {
-    return res.status(409).json({ error: 'This account is already a member of this tenant' });
+    return res.status(409).json({
+      error: { code: 'ALREADY_MEMBER', message: 'This account is already a member of this tenant' },
+    });
   }
 
-  // Enforce seat limits (FR-12) — use BEGIN IMMEDIATE for concurrency safety (T-MEM-3)
+  // Enforce seat limits (FR-12)
   const tenant = db.prepare('SELECT plan FROM tenants WHERE id = ?').get(req.tenant.id);
-  const planLimits = config.plans[tenant.plan];
+  const planLimits = config.plans[tenant.plan] || { seats: 1 };
 
   const memberCount = db.prepare(
     "SELECT COUNT(*) as count FROM memberships WHERE tenant_id = ? AND status = 'active'"
@@ -82,7 +91,11 @@ router.post('/:slug/members', requireAuth, requireRole('admin'), (req, res) => {
 
   if (memberCount >= planLimits.seats) {
     return res.status(409).json({
-      error: `Seat limit reached. ${tenant.plan} plan allows ${planLimits.seats} member(s). Current: ${memberCount}`,
+      error: {
+        code: 'PLAN_LIMIT',
+        message: `Seat limit reached. ${tenant.plan} plan allows ${planLimits.seats} member(s). Current: ${memberCount}`,
+        details: { currentSeats: memberCount, maxSeats: planLimits.seats },
+      },
     });
   }
 
@@ -90,17 +103,17 @@ router.post('/:slug/members', requireAuth, requireRole('admin'), (req, res) => {
   if (existingMembership && existingMembership.status === 'removed') {
     db.prepare(
       "UPDATE memberships SET status = 'active', role = ?, joined_at = datetime('now') WHERE id = ?"
-    ).run(role, existingMembership.id);
+    ).run(cleanRole, existingMembership.id);
   } else {
     db.prepare(
       'INSERT INTO memberships (tenant_id, account_id, role) VALUES (?, ?, ?)'
-    ).run(req.tenant.id, account.id, role);
+    ).run(req.tenant.id, account.id, cleanRole);
   }
 
   logger.info('Member added', {
     slug: req.params.slug,
-    email,
-    role,
+    email: account.email,
+    role: cleanRole,
     addedBy: req.user.accountId,
   });
 
@@ -110,14 +123,64 @@ router.post('/:slug/members', requireAuth, requireRole('admin'), (req, res) => {
       accountId: account.id,
       email: account.email,
       displayName: account.display_name,
-      role,
+      role: cleanRole,
     },
   });
 });
 
+// Helper for member role update
+function handleMemberRoleUpdate(req, res) {
+  const targetId = parseInt(req.params.accountId, 10);
+  const { role } = req.body || {};
+
+  if (!role || !['admin', 'member'].includes(role.toLowerCase())) {
+    return res.status(400).json({
+      error: { code: 'VALIDATION', message: 'role must be admin or member' },
+    });
+  }
+
+  const cleanRole = role.toLowerCase();
+  const db = getDb();
+
+  let targetMembership = db.prepare(
+    "SELECT id, role, account_id FROM memberships WHERE tenant_id = ? AND id = ? AND status = 'active'"
+  ).get(req.tenant.id, targetId);
+
+  if (!targetMembership) {
+    targetMembership = db.prepare(
+      "SELECT id, role, account_id FROM memberships WHERE tenant_id = ? AND account_id = ? AND status = 'active'"
+    ).get(req.tenant.id, targetId);
+  }
+
+  if (!targetMembership) {
+    return res.status(404).json({
+      error: { code: 'NOT_FOUND', message: 'Member not found' },
+    });
+  }
+
+  if (targetMembership.role === 'owner') {
+    return res.status(400).json({
+      error: { code: 'LAST_OWNER', message: 'Cannot change owner role. Use transfer ownership instead.' },
+    });
+  }
+
+  db.prepare('UPDATE memberships SET role = ? WHERE id = ?').run(cleanRole, targetMembership.id);
+
+  logger.info('Member role changed', {
+    slug: req.params.slug,
+    targetAccountId: targetMembership.account_id,
+    newRole: cleanRole,
+  });
+
+  res.json({ message: 'Role updated', role: cleanRole });
+}
+
+// PUT /v1/tenants/:slug/members/:accountId/role
+router.put('/:slug/members/:accountId/role', requireAuth, requireRole('owner'), handleMemberRoleUpdate);
+// PATCH /v1/tenants/:slug/members/:accountId (Phase 6C)
+router.patch('/:slug/members/:accountId', requireAuth, requireRole('owner'), handleMemberRoleUpdate);
+
 // DELETE /v1/tenants/:slug/members/:accountId
-// Remove a member. Requires admin or owner.
-// FR-13: the last owner cannot be removed
 router.delete('/:slug/members/:accountId', requireAuth, requireRole('admin'), (req, res) => {
   const targetId = parseInt(req.params.accountId, 10);
   const db = getDb();
@@ -133,22 +196,30 @@ router.delete('/:slug/members/:accountId', requireAuth, requireRole('admin'), (r
   }
 
   if (!targetMembership) {
-    return res.status(404).json({ error: 'Member not found' });
+    return res.status(404).json({
+      error: { code: 'NOT_FOUND', message: 'Member not found' },
+    });
   }
 
-  // Cannot remove yourself (use a separate leave endpoint)
+  // Cannot remove yourself
   if (targetMembership.account_id === req.user.accountId) {
-    return res.status(400).json({ error: 'Cannot remove yourself. Use transfer ownership first.' });
+    return res.status(400).json({
+      error: { code: 'VALIDATION', message: 'Cannot remove yourself. Use transfer ownership first.' },
+    });
   }
 
   // Only owner can remove admins
   if (targetMembership.role === 'admin' && req.membership.role !== 'owner') {
-    return res.status(403).json({ error: 'Only owners can remove admins' });
+    return res.status(403).json({
+      error: { code: 'FORBIDDEN', message: 'Only owners can remove admins' },
+    });
   }
 
   // Cannot remove the owner (FR-13: last owner protection)
   if (targetMembership.role === 'owner') {
-    return res.status(400).json({ error: 'Cannot remove the owner. Transfer ownership first.' });
+    return res.status(400).json({
+      error: { code: 'LAST_OWNER', message: 'Cannot remove the owner. Transfer ownership first.' },
+    });
   }
 
   // Soft-remove the membership
@@ -163,55 +234,14 @@ router.delete('/:slug/members/:accountId', requireAuth, requireRole('admin'), (r
   res.json({ message: 'Member removed' });
 });
 
-// PUT /v1/tenants/:slug/members/:accountId/role
-// Change a member's role. Owner only.
-router.put('/:slug/members/:accountId/role', requireAuth, requireRole('owner'), (req, res) => {
-  const targetId = parseInt(req.params.accountId, 10);
-  const { role } = req.body;
-
-  if (!role || !['admin', 'member'].includes(role)) {
-    return res.status(400).json({ error: 'role must be admin or member' });
-  }
-
-  const db = getDb();
-
-  let targetMembership = db.prepare(
-    "SELECT id, role, account_id FROM memberships WHERE tenant_id = ? AND id = ? AND status = 'active'"
-  ).get(req.tenant.id, targetId);
-
-  if (!targetMembership) {
-    targetMembership = db.prepare(
-      "SELECT id, role, account_id FROM memberships WHERE tenant_id = ? AND account_id = ? AND status = 'active'"
-    ).get(req.tenant.id, targetId);
-  }
-
-  if (!targetMembership) {
-    return res.status(404).json({ error: 'Member not found' });
-  }
-
-  if (targetMembership.role === 'owner') {
-    return res.status(400).json({ error: 'Cannot change owner role. Use transfer ownership instead.' });
-  }
-
-  db.prepare('UPDATE memberships SET role = ? WHERE id = ?').run(role, targetMembership.id);
-
-  logger.info('Member role changed', {
-    slug: req.params.slug,
-    targetAccountId: targetMembership.account_id,
-    newRole: role,
-  });
-
-  res.json({ message: 'Role updated', role });
-});
-
 // POST /v1/tenants/:slug/transfer-ownership
-// Transfer ownership to another member. Owner only.
-// FR-13: tenant always has exactly one owner
 router.post('/:slug/transfer-ownership', requireAuth, requireRole('owner'), (req, res) => {
-  const { accountId } = req.body;
+  const { accountId } = req.body || {};
 
   if (!accountId) {
-    return res.status(400).json({ error: 'accountId of new owner is required' });
+    return res.status(400).json({
+      error: { code: 'VALIDATION', message: 'accountId of new owner is required' },
+    });
   }
 
   const db = getDb();
@@ -221,15 +251,14 @@ router.post('/:slug/transfer-ownership', requireAuth, requireRole('owner'), (req
   ).get(req.tenant.id, accountId);
 
   if (!newOwner) {
-    return res.status(404).json({ error: 'Target account is not an active member of this tenant' });
+    return res.status(404).json({
+      error: { code: 'NOT_FOUND', message: 'Target account is not an active member of this tenant' },
+    });
   }
 
-  // Atomic transfer within a transaction
   const transfer = db.transaction(() => {
-    // Demote current owner to admin
     db.prepare("UPDATE memberships SET role = 'admin' WHERE tenant_id = ? AND account_id = ?")
       .run(req.tenant.id, req.user.accountId);
-    // Promote new owner
     db.prepare("UPDATE memberships SET role = 'owner' WHERE tenant_id = ? AND account_id = ?")
       .run(req.tenant.id, accountId);
   });

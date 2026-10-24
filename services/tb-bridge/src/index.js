@@ -1,8 +1,9 @@
 // ---------------------------------------------------------------------------
-// CloudNest — tb-bridge (Magistrala -> ThingsBoard Telemetry Forwarder)
+// CloudNest — tb-bridge (Magistrala -> ThingsBoard & Internal Status Forwarder)
 // ---------------------------------------------------------------------------
 // FR-04: Device telemetry routes through Magistrala MQTT to HA and ThingsBoard
 // FR-07: Platform administrators can view platform-wide telemetry in ThingsBoard
+// Phase 6C: Device seen reporter (POST /internal/devices/seen on port 8081)
 // ---------------------------------------------------------------------------
 
 const mqtt = require('mqtt');
@@ -34,6 +35,8 @@ const logger = winston.createLogger({
 const CONFIG = {
   port: parseInt(process.env.PORT || '3001', 10),
   provisioningApiUrl: process.env.PROVISIONING_API_URL || 'http://cloudnest-provisioning-api.provisioning.svc.cluster.local:3000',
+  internalApiUrl: process.env.INTERNAL_API_URL || 'http://cloudnest-provisioning-api.provisioning.svc.cluster.local:8081',
+  internalToken: process.env.INTERNAL_TOKEN || 'sift-internal-secret-token',
   pollIntervalMs: parseInt(process.env.POLL_INTERVAL_MS || '15000', 10),
 
   // Magistrala MQTT broker
@@ -53,12 +56,18 @@ const metrics = {
   messagesForwarded: 0,
   forwardErrors: 0,
   parseErrors: 0,
+  unknownDevices: 0,
+  reportsSent: 0,
+  reportsFailed: 0,
   subscribedChannels: 0,
   startTime: new Date().toISOString(),
 };
 
 // Channel mapping: channelId -> { slug, workspaceId }
 const activeChannels = new Map();
+
+// Pending activity reports batch for Phase 6C (POST /internal/devices/seen)
+let pendingReports = [];
 
 // Initialize ThingsBoard MQTT Gateway client
 let tbMqttClient = null;
@@ -87,7 +96,6 @@ function initThingsBoardClient() {
 async function forwardToThingsBoard(deviceName, telemetryData) {
   metrics.messagesReceived++;
 
-  // 1. Try ThingsBoard Gateway MQTT first
   if (tbMqttClient && tbMqttClient.connected) {
     const payload = {
       [deviceName]: [
@@ -100,57 +108,99 @@ async function forwardToThingsBoard(deviceName, telemetryData) {
 
     tbMqttClient.publish('v1/gateway/telemetry', JSON.stringify(payload), { qos: 1 }, (err) => {
       if (err) {
-        logger.error('Failed to publish to ThingsBoard Gateway', { error: err.message, deviceName });
         metrics.forwardErrors++;
+        logger.error('Failed to forward telemetry via MQTT', { deviceName, error: err.message });
       } else {
         metrics.messagesForwarded++;
       }
     });
-    return;
-  }
-
-  // 2. HTTP Fallback if Gateway MQTT is disconnected or not configured
-  try {
-    const fetch = (await import('node-fetch')).default;
-    const url = `${CONFIG.tbHttpUrl}/api/v1/${CONFIG.tbGatewayToken}/telemetry`;
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        deviceName,
-        ...telemetryData,
-      }),
-    });
-    if (res.ok) {
-      metrics.messagesForwarded++;
-    } else {
+  } else {
+    // Fallback: HTTP Gateway API
+    try {
+      const fetch = (await import('node-fetch')).default;
+      const url = `${CONFIG.tbHttpUrl}/api/v1/${CONFIG.tbGatewayToken}/telemetry`;
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ [deviceName]: [{ ts: Date.now(), values: telemetryData }] }),
+      });
+      if (res.ok) {
+        metrics.messagesForwarded++;
+      } else {
+        metrics.forwardErrors++;
+      }
+    } catch {
       metrics.forwardErrors++;
-      logger.warn('ThingsBoard HTTP post returned non-200', { status: res.status });
     }
-  } catch (err) {
-    metrics.forwardErrors++;
-    logger.error('Failed to forward telemetry to ThingsBoard via HTTP', { error: err.message });
   }
 }
 
-// Parse incoming payload (SenML or standard JSON)
-function parseTelemetry(payloadBuffer) {
+// Flush batched device reports to Provisioning API (Phase 6C section 6.3)
+async function flushReports() {
+  if (pendingReports.length === 0) return;
+
+  const batch = pendingReports.slice(0, 100);
+  pendingReports = pendingReports.slice(100);
+
   try {
-    const text = payloadBuffer.toString('utf8');
+    const fetch = (await import('node-fetch')).default;
+    // Attempt internal API port 8081 first, fallback to main port 3000
+    const primaryUrl = `${CONFIG.internalApiUrl}/internal/devices/seen`;
+    const fallbackUrl = `${CONFIG.provisioningApiUrl}/internal/devices/seen`;
+
+    let res;
+    try {
+      res = await fetch(primaryUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Internal-Token': CONFIG.internalToken,
+        },
+        body: JSON.stringify({ reports: batch }),
+      });
+    } catch {
+      res = await fetch(fallbackUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Internal-Token': CONFIG.internalToken,
+        },
+        body: JSON.stringify({ reports: batch }),
+      });
+    }
+
+    if (res && res.ok) {
+      metrics.reportsSent += batch.length;
+    } else {
+      metrics.reportsFailed += batch.length;
+    }
+  } catch (err) {
+    metrics.reportsFailed += batch.length;
+    logger.warn('Failed to send device seen reports', { error: err.message });
+  }
+}
+
+// Flush reports every 2 seconds (Section 6.3)
+setInterval(flushReports, 2000);
+
+// Helper: parse SenML or JSON telemetry payloads
+function parseTelemetry(payload) {
+  try {
+    const text = payload.toString();
     const parsed = JSON.parse(text);
 
-    // If SenML format: [{"n": "temperature", "v": 22.5}, ...]
+    // SenML format: [ { bn: "dev1:", n: "temp", v: 22.5, t: 1000 } ]
     if (Array.isArray(parsed)) {
       const data = {};
-      for (const item of parsed) {
-        if (item.n) {
-          data[item.n] = item.v !== undefined ? item.v : (item.vs || item.vb);
+      for (const rec of parsed) {
+        if (rec.n && rec.v !== undefined) {
+          data[rec.n] = rec.v;
         }
       }
       return data;
     }
 
-    // Standard JSON object: { temperature: 22.5, humidity: 45 }
+    // Standard JSON object: { id: "dev_x", temperature: 22.5, humidity: 45 }
     if (typeof parsed === 'object' && parsed !== null) {
       return parsed;
     }
@@ -174,13 +224,10 @@ function initMagistralaClient() {
 
   mgClient.on('connect', () => {
     logger.info('Connected to Magistrala MQTT broker');
-    // Subscribe to existing channels
     resubscribeChannels();
   });
 
   mgClient.on('message', (topic, payload) => {
-    // Topic formats in Magistrala:
-    // "channels/<channelId>/messages" or "channels/<channelId>/messages/<subtopic>"
     const match = topic.match(/^channels\/([^/]+)\/messages(?:\/(.+))?$/);
     if (!match) return;
 
@@ -196,11 +243,22 @@ function initMagistralaClient() {
       return;
     }
 
-    // Device identification: subtopic or payload device property or default
-    const devId = telemetry.device || subtopic || 'sensor';
-    const deviceName = `${tenantSlug}/${devId}`;
+    // Device identification (Section 6.3)
+    const deviceId = telemetry.id || telemetry.deviceId || telemetry.device || subtopic;
+    if (!deviceId) {
+      metrics.unknownDevices++;
+    } else {
+      // Queue report for Provisioning API (Phase 6C)
+      pendingReports.push({
+        tenantSlug,
+        deviceId: String(deviceId),
+        ts: new Date().toISOString(),
+        values: telemetry,
+      });
+    }
 
-    forwardToThingsBoard(deviceName, telemetry);
+    const devName = `${tenantSlug}/${deviceId || 'sensor'}`;
+    forwardToThingsBoard(devName, telemetry);
   });
 
   mgClient.on('error', (err) => {
@@ -250,7 +308,6 @@ async function pollProvisioningApi() {
         });
         newCount++;
 
-        // Subscribe immediately if connected
         if (mgClient && mgClient.connected) {
           const topic = `channels/${obs.telemetryChannelId}/messages/#`;
           mgClient.subscribe(topic, { qos: 1 }, (err) => {
@@ -291,6 +348,7 @@ app.get('/metrics', (req, res) => {
   res.json({
     ...metrics,
     subscribedChannels: activeChannels.size,
+    pendingReports: pendingReports.length,
     uptimeSeconds: Math.floor(process.uptime()),
   });
 });
@@ -299,9 +357,7 @@ app.get('/metrics', (req, res) => {
 initThingsBoardClient();
 initMagistralaClient();
 
-// Periodic polling
 setInterval(pollProvisioningApi, CONFIG.pollIntervalMs);
-// Initial poll immediately
 pollProvisioningApi();
 
 app.listen(CONFIG.port, () => {

@@ -16,6 +16,7 @@ Last updated: 2026-10-20 | Current phase: 10 | Environment: local
 | 5 | 5.1–5.5 Home Assistant tenant Helm chart (deploy/ha-tenant) | done | 2026-10-14 | phase-5.step-1 |
 | 6 | 6.1–6.7 Provisioning API core service | done | 2026-10-14 | phase-6.step-6 |
 | 6B| 6B.1–6B.11 Accounts, members, plans, devices, commands | done | 2026-10-14 | phase-6b.step-8 |
+| 6C| 6C.1–6C.8 Single-page Tenant Portal, ESP32 Onboarding, & Verification Suite | done | 2026-10-24 | phase-6c |
 | 7 | 7.1–7.5 tb-bridge telemetry forwarder service | done | 2026-10-14 | phase-7.step-4 |
 | 8 | 8.1–8.5 IoT Simulator & load test scenarios S1-S5 | done | 2026-10-14 | phase-8.step-3 |
 | 9 | 9.1–9.4 Automated verification & isolation test suite | done | 2026-10-14 | phase-9.step-1 |
@@ -172,22 +173,28 @@ flowchart TB
 | Method | Endpoint | Auth | Purpose |
 |--------|----------|------|---------|
 | `POST` | `/v1/accounts/register` | Public | Register platform account with salted bcrypt hash (FR-11) |
-| `POST` | `/v1/accounts/login` | Public (rate limited) | Authenticate user, issue JWT token (FR-11) |
-| `GET`  | `/v1/accounts/me` | Bearer JWT | View account profile and tenant memberships |
-| `POST` | `/v1/tenants` | API Key + JWT | Create tenant, provision Magistrala channels, deploy HA (FR-01, FR-02, FR-03) |
-| `GET`  | `/v1/tenants/:slug` | Bearer JWT (member+) | Get tenant details and current usage |
-| `PUT`  | `/v1/tenants/:slug/plan` | Bearer JWT (owner) | Change plan with downgrade guard against limits (FR-12) |
-| `DELETE` | `/v1/tenants/:slug` | Bearer JWT (owner) | Delete tenant, teardown K8s namespace and Magistrala workspace |
-| `GET`  | `/v1/tenants/:slug/members` | Bearer JWT (member+) | List active tenant household members |
-| `POST` | `/v1/tenants/:slug/members` | Bearer JWT (admin+) | Directly add member by email with seat limit enforcement (FR-12, FR-13) |
-| `PUT`  | `/v1/tenants/:slug/members/:id/role` | Bearer JWT (owner) | Change member role with last-owner protection (FR-13) |
-| `DELETE` | `/v1/tenants/:slug/members/:id` | Bearer JWT (admin+) | Remove member from tenant |
-| `POST` | `/v1/tenants/:slug/transfer-ownership` | Bearer JWT (owner) | Transfer ownership to another member |
-| `GET`  | `/v1/tenants/:slug/devices` | Bearer JWT (member+) | List devices (shared by all members, FR-14) |
-| `POST` | `/v1/tenants/:slug/devices` | Bearer JWT (admin+) | Register device, connect to channels, return credentials once (FR-05) |
-| `POST` | `/v1/tenants/:slug/devices/:id/rotate-secret` | Bearer JWT (admin+) | Rotate device secret |
-| `DELETE` | `/v1/tenants/:slug/devices/:id` | Bearer JWT (admin+) | Revoke device |
+| `POST` | `/v1/accounts/login` | Public (rate limited) | Authenticate user, issue JWT token & sift_session cookie (FR-11) |
+| `POST` | `/v1/accounts/logout` | Public | Clear sift_session cookie |
+| `GET`  | `/v1/accounts/me` | Bearer JWT / Cookie | View account profile, memberships, and active tenant details |
+| `GET`  | `/v1/config` | Public | Return public runtime config (MQTT host, port, tenant domain, warnings) |
+| `POST` | `/v1/tenants` | API Key / User Auth | Create tenant, provision Magistrala channels, deploy HA (FR-01, FR-02, FR-03) |
+| `GET`  | `/v1/tenants/:slug` | Bearer JWT / Cookie (member+) | Get tenant details, quotas, and current usage |
+| `GET`  | `/v1/tenants/:slug/ha-access` | Bearer JWT / Cookie (member+) | Get shared HA credentials (Cache-Control: no-store) |
+| `PUT`/`PATCH` | `/v1/tenants/:slug/plan` | Bearer JWT / Cookie (owner) | Change plan with downgrade guard against limits (FR-12) |
+| `DELETE` | `/v1/tenants/:slug` | Bearer JWT / Cookie (owner) | Delete tenant, teardown K8s namespace and Magistrala workspace |
+| `GET`  | `/v1/tenants/:slug/members` | Bearer JWT / Cookie (member+) | List active tenant household members and seat limits |
+| `POST` | `/v1/tenants/:slug/members` | Bearer JWT / Cookie (admin+) | Directly add member by email with seat limit enforcement (FR-12, FR-13) |
+| `PUT`/`PATCH` | `/v1/tenants/:slug/members/:id/role` | Bearer JWT / Cookie (owner) | Change member role with last-owner protection (FR-13) |
+| `DELETE` | `/v1/tenants/:slug/members/:id` | Bearer JWT / Cookie (admin+) | Remove member from tenant with last-owner protection |
+| `POST` | `/v1/tenants/:slug/transfer-ownership` | Bearer JWT / Cookie (owner) | Transfer ownership to another member |
+| `GET`  | `/v1/tenants/:slug/devices` | Bearer JWT / Cookie (member+) | List devices with computed online/offline/pending status (FR-14) |
+| `POST` | `/v1/tenants/:slug/devices` | Bearer JWT / Cookie (admin+) | Register device, connect to channels, return credentials once (FR-05) |
+| `GET`  | `/v1/tenants/:slug/devices/:id/status` | Bearer JWT / Cookie (member+) | Poll device status, last seen timestamp, and telemetry state |
+| `POST` | `/v1/tenants/:slug/devices/:id/test-command` | Bearer JWT / Cookie (member+) | Send command (ON/OFF/TOGGLE) to switch entity via MQTT |
+| `POST` | `/v1/tenants/:slug/devices/:id/rotate-secret` | Bearer JWT / Cookie (admin+) | Rotate device secret |
+| `DELETE` | `/v1/tenants/:slug/devices/:id` | Bearer JWT / Cookie (admin+) | Revoke device |
 | `GET`  | `/internal/observers` | Internal | Return active tenant channel mappings for tb-bridge |
+| `POST` | `/internal/devices/seen` | Internal Token (:8081) | tb-bridge batch reporter for device activity and telemetry updates |
 
 ## 4b. Data model
 
@@ -211,10 +218,19 @@ erDiagram
   ACCOUNTS { int id string email_UK string display_name string password_hash string status datetime created_at }
   TENANTS { int id string slug_UK string display_name string plan string status string mg_workspace_id string mg_chan_telemetry string mg_chan_commands string ha_namespace datetime created_at datetime deleted_at }
   MEMBERSHIPS { int id int tenant_id int account_id string role string status datetime joined_at }
-  DEVICES { int id int tenant_id string name string kind string mg_client_id string status datetime created_at datetime last_seen_at }
+  DEVICES { int id int tenant_id string name string kind string mg_client_id string status datetime created_at datetime first_connected_at datetime last_seen_at string last_value_json }
 ```
 
 Secrets (Magistrala client secrets, HA service tokens) are stored ONLY in Kubernetes Secrets in the `provisioning` namespace, never in the DB. Implemented in `services/provisioning-api/src/db.js`.
+
+### Device Status State Machine (Computed at Read Time)
+Devices do not store a static online/offline status in the DB; status is computed dynamically on read from `status`, `first_connected_at`, and `last_seen_at` relative to `config.offlineAfterSeconds` (default: 90s):
+- `revoked`: if `device.status === 'revoked'`
+- `pending`: if `first_connected_at` is null (device has been provisioned but has never published telemetry or connected)
+- `online`: if `last_seen_at` is within the last `offlineAfterSeconds` (default: 90 seconds)
+- `offline`: if `first_connected_at` is set, but `last_seen_at` is older than `offlineAfterSeconds`
+
+Activity timestamps and latest parsed payload are updated asynchronously by `tb-bridge` batch reporting to `POST /internal/devices/seen` with `X-Internal-Token`.
 
 ## 5. End-to-end flows
 
@@ -303,6 +319,27 @@ In progress — Phase 10.
 - DHT22 on GPIO 15, LED on GPIO 2
 - Web dashboard generates pre-filled sketch with device credentials
 
+### 5.9 Phase 6C — Single-Page Tenant Portal & ESP32 Onboarding Architecture
+- **Architecture**: Vanilla JS (ES Modules), Vanilla CSS, semantic HTML5, zero CDN dependencies. Built directly into the Provisioning API and served statically at `/`.
+- **Client-Side Hash Routing**:
+  - `#/login` and `#/register`: Authentication with password requirements and session management.
+  - `#/create-household`: 4-step wizard (Household Details -> Region & Plan -> Review & Create -> Live Provisioning) with animated step indicator.
+  - `#/t/:slug`: Tenant dashboard featuring getting started checklist, Home Assistant credentials panel, and real-time usage meters.
+  - `#/t/:slug/devices`: Device list with live status badges (`pending`, `online`, `offline`, `revoked`), last seen times, and entity tags.
+  - `#/t/:slug/devices/new`: Device registration wizard with kind selector (sensor vs switch), pin configs, ephemeral credential disclosure, and in-browser download of `sift-device.ino` and `sift-device.json`.
+  - `#/t/:slug/devices/:id`: Device detail view with live status polling, telemetry state viewer, switch test commands, and secret rotation/revocation.
+  - `#/t/:slug/members`: Household member management, seat counters, role hierarchy (owner/admin/member), and last-owner safety checks.
+  - `#/t/:slug/plan`: Plan tier overview, feature matrix, and upgrade/downgrade safeguards.
+  - `#/help/esp32`: Interactive ESP32 hardware pinout, required Arduino libraries, and flashing walkthrough.
+- **In-Browser Artifact Generation**:
+  - `sift-device.ino`: Generates fully runnable Arduino C++ code with C-string escaping (`\"`, `\\`), PubSubClient setup, JSON serialization, and auto-reconnect.
+  - `sift-device.json`: Generates machine-readable device profile consumed directly by `one-device.js`.
+- **Virtual Device CLI**:
+  - `tools/simulator/one-device.js` and `/tools/one-device.js`: Standalone runner that parses `sift-device.json`, connects to MQTT, publishes telemetry every N seconds, listens for switch commands, and outputs ESP32-style serial logs.
+- **Telemetry Ingestion & Status Tracking**:
+  - `tb-bridge` batches seen device activity every 2 seconds and POSTs to `/internal/devices/seen` on internal port 8081 with `X-Internal-Token`.
+  - Updates `first_connected_at`, `last_seen_at`, and `last_value_json` in the database, allowing UI to transition from `pending` to `online` within seconds.
+
 ## 6. Security model
 | Threat | Control | Where implemented | Test id | Result |
 |--------|---------|-------------------|---------|--------|
@@ -319,6 +356,11 @@ In progress — Phase 10.
 | Cross-tenant command hijacking | Dedicated command channels separate from telemetry | Phase 6B | T-DEV-3 | Verified (downlink isolation) |
 | Shared device access | Devices belong to tenant, shared by active members | Phase 6B | T-DEV-4 | Verified (both members see same device) |
 | Revoked device access | Status flag revoked in DB and client deleted in Magistrala | Phase 6B | T-DEV-5 | Verified |
+| Session hijacking / token theft | HttpOnly SameSite=Lax session cookie | Phase 6C | SEC-UI-1 | Verified |
+| CSRF attacks on cookie session | Double-submit CSRF enforcement via X-SIFT-CSRF header on mutating methods | Phase 6C | SEC-UI-2 | Verified (403 when missing header) |
+| Content injection / XSS | Strict Content Security Policy (default-src 'self') | Phase 6C | SEC-UI-3 | Verified |
+| Internal telemetry endpoint tampering | Port isolation (internal port 8081) and X-Internal-Token auth | Phase 6C | SEC-UI-7 | Verified (403 on invalid token) |
+| HA shared credential caching | Cache-Control: no-store on ha-access endpoint | Phase 6C | FR-22 | Verified |
 
 ## 7. Decisions log
 | Date | Decision | Alternatives considered | Why |
@@ -399,3 +441,4 @@ EC2 bin-packing ~$7,950/mo vs Fargate ~$11,850/mo — see CloudNest_BRD_v3.md se
 | 2026-10-20 | 10B.5 | start-local.ps1 / start-local.sh bootstrap scripts | Automated local env setup with port-forwards and dependency checks |
 | 2026-10-20 | 10B.6 | Offline resilience fallbacks for Magistrala/ThingsBoard, bcrypt auth in K8s, dual ID resolution in members routes | 14/14 automated verification tests passing |
 | 2026-10-20 | 10B.7 | Local environment & onboarding fixes: CSP disabled for dashboard, HA base64 bcrypt auth & 32-char hex IDs, repo-relative Helm chart resolution & HA port-forward, port 1883 Mosquitto fallback in start-local scripts, unified MQTT discovery unique_id & dashboard API key input | Reliable local Windows/Linux execution, 1-click web onboarding, and Wokwi ESP32 compatibility |
+| 2026-10-24 | 6C.1–6C.8 | Single-page plain HTML/JS/CSS Tenant Portal, first-time ESP32 onboarding wizard, sift-device.ino/json generators, virtual device CLI (one-device.js), internal seen telemetry batch reporter, and comprehensive 20-test verification suite (FR-01 to FR-22) | Full production tenant experience with zero CDN dependencies, cookie CSRF protection, and real-time device status tracking |

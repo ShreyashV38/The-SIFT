@@ -74,16 +74,18 @@ function initSchema() {
       UNIQUE(tenant_id, account_id)
     );
 
-    -- Devices: IoT devices belonging to tenants (FR-05)
+    -- Devices: IoT devices belonging to tenants (FR-05, Phase 6C)
     CREATE TABLE IF NOT EXISTS devices (
-      id              INTEGER PRIMARY KEY AUTOINCREMENT,
-      tenant_id       INTEGER NOT NULL REFERENCES tenants(id),
-      name            TEXT    NOT NULL,
-      kind            TEXT    NOT NULL DEFAULT 'simulator' CHECK(kind IN ('simulator','esp32','other')),
-      mg_client_id    TEXT,
-      status          TEXT    NOT NULL DEFAULT 'active' CHECK(status IN ('active','revoked')),
-      created_at      TEXT    NOT NULL DEFAULT (datetime('now')),
-      last_seen_at    TEXT
+      id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+      tenant_id           INTEGER NOT NULL REFERENCES tenants(id),
+      name                TEXT    NOT NULL,
+      kind                TEXT    NOT NULL DEFAULT 'simulator' CHECK(kind IN ('simulator','esp32','other','sensor','switch')),
+      mg_client_id        TEXT,
+      status              TEXT    NOT NULL DEFAULT 'active' CHECK(status IN ('active','revoked')),
+      created_at          TEXT    NOT NULL DEFAULT (datetime('now')),
+      first_connected_at  TEXT,
+      last_seen_at        TEXT,
+      last_value_json     TEXT
     );
 
     -- Indexes for common queries
@@ -91,6 +93,47 @@ function initSchema() {
     CREATE INDEX IF NOT EXISTS idx_memberships_account ON memberships(account_id);
     CREATE INDEX IF NOT EXISTS idx_devices_tenant      ON devices(tenant_id);
   `);
+
+  // Phase 6C migration: Ensure columns and updated check constraint exist in existing database
+  try {
+    const tableSql = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='devices'").get();
+    if (tableSql && tableSql.sql && !tableSql.sql.includes('sensor')) {
+      logger.info('Migrating devices table schema to support sensor and switch kinds...');
+      db.exec(`
+        PRAGMA foreign_keys = OFF;
+        CREATE TABLE devices_migration (
+          id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+          tenant_id           INTEGER NOT NULL REFERENCES tenants(id),
+          name                TEXT    NOT NULL,
+          kind                TEXT    NOT NULL DEFAULT 'simulator' CHECK(kind IN ('simulator','esp32','other','sensor','switch')),
+          mg_client_id        TEXT,
+          status              TEXT    NOT NULL DEFAULT 'active' CHECK(status IN ('active','revoked')),
+          created_at          TEXT    NOT NULL DEFAULT (datetime('now')),
+          first_connected_at  TEXT,
+          last_seen_at        TEXT,
+          last_value_json     TEXT
+        );
+        INSERT INTO devices_migration (id, tenant_id, name, kind, mg_client_id, status, created_at)
+          SELECT id, tenant_id, name, kind, mg_client_id, status, created_at FROM devices;
+        DROP TABLE devices;
+        ALTER TABLE devices_migration RENAME TO devices;
+        CREATE INDEX IF NOT EXISTS idx_devices_tenant ON devices(tenant_id);
+        PRAGMA foreign_keys = ON;
+      `);
+      logger.info('Devices table schema migrated successfully.');
+    } else {
+      const tableInfo = db.prepare("PRAGMA table_info(devices)").all();
+      const colNames = tableInfo.map(c => c.name);
+      if (!colNames.includes('first_connected_at')) {
+        db.exec("ALTER TABLE devices ADD COLUMN first_connected_at TEXT");
+      }
+      if (!colNames.includes('last_value_json')) {
+        db.exec("ALTER TABLE devices ADD COLUMN last_value_json TEXT");
+      }
+    }
+  } catch (err) {
+    logger.warn('Migration warning on devices table', { error: err.message });
+  }
 }
 
 module.exports = { getDb };

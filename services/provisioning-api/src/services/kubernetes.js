@@ -19,6 +19,19 @@ const HELM_CHART_PATH = process.env.HA_HELM_CHART_PATH || (fs.existsSync('/app/c
 // Active port-forwards map (slug -> ChildProcess)
 const activePortForwards = new Map();
 
+// Fast cluster reachability check (cached)
+let k8sReachable = null;
+function checkK8s() {
+  if (k8sReachable !== null) return k8sReachable;
+  try {
+    execSync('kubectl cluster-info', { stdio: 'ignore', timeout: 1500 });
+    k8sReachable = true;
+  } catch {
+    k8sReachable = false;
+  }
+  return k8sReachable;
+}
+
 // Helper to launch background kubectl port-forward for a tenant
 function startPortForward(slug, namespace, localPort = 8123) {
   try {
@@ -46,6 +59,19 @@ function deployTenant(slug, mqttCredentials) {
 
   // 1. Precompute bcrypt hash of HA password (base64-encoded for HA auth provider)
   const haPasswordHash = Buffer.from(bcrypt.hashSync(config.haPassword, 12)).toString('base64');
+
+  if (!checkK8s()) {
+    logger.info('Kubernetes cluster not reachable, returning simulated HA instance config', { slug });
+    return {
+      namespace,
+      releaseName,
+      url: `http://${slug}.${config.domain}:8123`,
+      haCredentials: {
+        username: config.haUsername,
+        password: config.haPassword,
+      },
+    };
+  }
 
   try {
     // 2. Create namespace with Pod Security Standard label

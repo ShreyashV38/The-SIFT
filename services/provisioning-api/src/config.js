@@ -54,9 +54,22 @@ const config = {
     family: { seats: 6, devices: 30 },
   },
 
+  // Internal server port & token (Phase 6C: port 8081 for tb-bridge)
+  internalPort: parseInt(process.env.INTERNAL_PORT || '8081', 10),
+  internalToken: process.env.INTERNAL_TOKEN || 'sift-internal-secret-token',
+
+  // Cookie security setting (false for plain HTTP localtest.me, true in prod)
+  cookieSecure: process.env.COOKIE_SECURE === 'true',
+
+  // Device status offline threshold in seconds
+  offlineAfterSeconds: parseInt(process.env.OFFLINE_AFTER_SECONDS || '90', 10),
+
+  // Reserved slugs that cannot be used for tenant households
+  reservedSlugs: ['app', 'portal', 'www', 'admin', 'api', 'platform', 'observability', 'magistrala', 'thingsboard'],
+
   // Rate limiting
   rateLimitWindowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS || '900000', 10),   // 15 min
-  rateLimitMaxRequests: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS || '100', 10),
+  rateLimitMaxRequests: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS || '120', 10),
   loginRateLimitMaxRequests: parseInt(process.env.LOGIN_RATE_LIMIT_MAX || '10', 10),
 };
 
