@@ -35,15 +35,7 @@
   <!-- Toast Notification Container -->
   <div id="toast-container" aria-label="Notifications" role="region"></div>
 
-  <!-- Client-side SPA Bootstrap -->
-  <script type="module">
-    import { initRouter } from './js/router.js';
-
-    document.addEventListener('DOMContentLoaded', () => {
-      const appContainer = document.getElementById('app');
-      const headerNav = document.getElementById('header-nav');
-      initRouter(appContainer, headerNav);
-    });
-  </script>
+  <!-- Client-side SPA Bootstrap (External module compliant with CSP script-src 'self') -->
+  <script type="module" src="./js/app.js"></script>
 </body>
 </html>

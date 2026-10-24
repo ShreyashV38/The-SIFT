@@ -148,7 +148,7 @@ if ($hasKubectl -and $clusterReachable) {
 }
 
 # Automated local Mosquitto check/fallback (Bug 4)
-$mqttRunning = Test-NetConnection -ComputerName localhost -Port 1883 -InformationLevel Quiet
+$mqttRunning = Test-NetConnection -ComputerName 127.0.0.1 -Port 1883 -InformationLevel Quiet -WarningAction SilentlyContinue
 if (-not $mqttRunning) {
     Write-Host "  Starting local Mosquitto MQTT broker on port 1883..." -ForegroundColor Yellow
     docker rm -f cloudnest-mqtt 2>$null | Out-Null
