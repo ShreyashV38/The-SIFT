@@ -106,7 +106,7 @@ function resolveDefaultDbPath() {
   if (process.env.DB_PATH) {
     return path.resolve(process.env.DB_PATH);
   }
-  return path.resolve(__dirname, '../../../services/provisioning-api/data/cloudnest.db');
+  return path.resolve(__dirname, '../../../data/cloudnest.db');
 }
 
 function getDb(customPath, logger) {
@@ -124,8 +124,9 @@ function getDb(customPath, logger) {
   sqliteDb = new Database(targetPath);
   sqliteDbPath = targetPath;
 
+  sqliteDb.pragma('busy_timeout = 10000');
   sqliteDb.pragma('journal_mode = WAL');
-  sqliteDb.pragma('busy_timeout = 5000');
+  sqliteDb.pragma('synchronous = NORMAL');
   sqliteDb.pragma('foreign_keys = ON');
 
   initSqliteSchema(sqliteDb, logger);
@@ -243,14 +244,42 @@ function initSqliteSchema(db, logger) {
       if (!colNames.includes('last_value_json')) {
         db.exec('ALTER TABLE devices ADD COLUMN last_value_json TEXT');
       }
-      db.exec(`
-        DROP INDEX IF EXISTS idx_devices_tenant_name_active;
-        CREATE UNIQUE INDEX IF NOT EXISTS idx_devices_tenant_name_active
-          ON devices(tenant_id, name) WHERE status != 'revoked';
-      `);
+      const idxSql = db.prepare("SELECT sql FROM sqlite_master WHERE type='index' AND name='idx_devices_tenant_name_active'").get();
+      if (!idxSql || !idxSql.sql || !idxSql.sql.includes('revoked')) {
+        db.exec(`
+          DROP INDEX IF EXISTS idx_devices_tenant_name_active;
+          CREATE UNIQUE INDEX IF NOT EXISTS idx_devices_tenant_name_active
+            ON devices(tenant_id, name) WHERE status != 'revoked';
+        `);
+      }
     }
   } catch (err) {
     if (logger) logger.warn('Migration warning on devices table', { error: err.message });
+  }
+
+  // Self-heal ephemeral otp_codes table or indexes if a prior force-kill / OneDrive sync left a malformed page
+  try {
+    db.prepare('SELECT count(*) FROM otp_codes').get();
+  } catch (err) {
+    if (logger) logger.warn('Rebuilding malformed otp_codes table', { error: err.message });
+    try {
+      db.exec(`
+        DROP INDEX IF EXISTS idx_otp_account;
+        DROP TABLE IF EXISTS otp_codes;
+        CREATE TABLE IF NOT EXISTS otp_codes (
+          id          INTEGER PRIMARY KEY AUTOINCREMENT,
+          account_id  INTEGER NOT NULL REFERENCES accounts(id),
+          code        TEXT    NOT NULL,
+          expires_at  TEXT    NOT NULL,
+          used        INTEGER NOT NULL DEFAULT 0,
+          created_at  TEXT    NOT NULL DEFAULT (datetime('now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_otp_account ON otp_codes(account_id);
+        REINDEX;
+      `);
+    } catch (healErr) {
+      if (logger) logger.error('Failed to self-heal otp_codes table', { error: healErr.message });
+    }
   }
 }
 

@@ -56,9 +56,10 @@ function startPortForward(slug, namespace, localPort = 8123) {
 function deployTenant(slug, mqttCredentials) {
   const namespace = `tenant-${slug}`;
   const releaseName = `ha-${slug}`;
+  const tenantHaPassword = config.getTenantHaPassword(slug);
 
   // 1. Precompute bcrypt hash of HA password (base64-encoded for HA auth provider)
-  const haPasswordHash = Buffer.from(bcrypt.hashSync(config.haPassword, 12)).toString('base64');
+  const haPasswordHash = Buffer.from(bcrypt.hashSync(tenantHaPassword, 12)).toString('base64');
 
   if (!checkK8s()) {
     logger.info('Kubernetes cluster not reachable, returning simulated HA instance config', { slug });
@@ -68,7 +69,7 @@ function deployTenant(slug, mqttCredentials) {
       url: `http://${slug}.${config.domain}:8123`,
       haCredentials: {
         username: config.haUsername,
-        password: config.haPassword,
+        password: tenantHaPassword,
       },
     };
   }
@@ -89,7 +90,7 @@ function deployTenant(slug, mqttCredentials) {
       `--set mqtt.host=magistrala-mqtt.platform.svc.cluster.local`,
       `--set mqtt.port=1883`,
       `--set haAuth.username=${config.haUsername}`,
-      `--set haAuth.password=${config.haPassword}`,
+      `--set haAuth.password="${tenantHaPassword}"`,
       `--set haAuth.passwordHash="${haPasswordHash}"`,
       mqttCredentials.clientId ? `--set mqtt.clientId=${mqttCredentials.clientId}` : '',
       mqttCredentials.secret ? `--set mqtt.secret=${mqttCredentials.secret}` : '',
@@ -111,17 +112,17 @@ function deployTenant(slug, mqttCredentials) {
       url: `http://${slug}.${config.domain}:8123`,
       haCredentials: {
         username: config.haUsername,
-        password: config.haPassword,
+        password: tenantHaPassword,
       },
     };
   } catch (err) {
     logger.warn('Kubernetes/Helm deployment failed, trying Docker fallback', { slug, error: err.message });
-    return deployTenantDockerFallback(slug, haPasswordHash);
+    return deployTenantDockerFallback(slug, haPasswordHash, tenantHaPassword);
   }
 }
 
 // Fallback to local Docker container when Kubernetes/Helm is not running
-function deployTenantDockerFallback(slug, haPasswordHash) {
+function deployTenantDockerFallback(slug, haPasswordHash, tenantHaPassword = config.getTenantHaPassword(slug)) {
   const containerName = `ha-${slug}`;
   const localPort = 8123;
 
@@ -145,7 +146,7 @@ function deployTenantDockerFallback(slug, haPasswordHash) {
       url: `http://localhost:${localPort}`,
       haCredentials: {
         username: config.haUsername,
-        password: config.haPassword,
+        password: tenantHaPassword,
       },
     };
   } catch (dockerErr) {
@@ -157,7 +158,7 @@ function deployTenantDockerFallback(slug, haPasswordHash) {
       status: 'deployment_pending',
       haCredentials: {
         username: config.haUsername,
-        password: config.haPassword,
+        password: tenantHaPassword,
       },
     };
   }

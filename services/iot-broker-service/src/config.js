@@ -1,9 +1,10 @@
+const path = require('path');
 const { PLANS } = require('@sift/common');
 
 module.exports = {
   serviceName: 'iot-broker-service',
   port: parseInt(process.env.IOT_BROKER_PORT || process.env.PORT || '3004', 10),
-  dbPath: process.env.DB_PATH || '',
+  dbPath: process.env.DB_PATH || path.resolve(__dirname, '../../../data/cloudnest.db'),
   databaseUrl: process.env.DATABASE_URL || 'postgres://sift_iot:sift_iot@localhost:5432/sift_iot',
   redisUrl: process.env.REDIS_URL || 'redis://localhost:6379',
   internalToken: process.env.INTERNAL_TOKEN || 'sift-internal-secret-token',

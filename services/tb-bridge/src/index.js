@@ -33,9 +33,9 @@ const logger = winston.createLogger({
 
 // Config
 const CONFIG = {
-  port: parseInt(process.env.PORT || '3001', 10),
+  port: parseInt(process.env.TB_BRIDGE_PORT || process.env.PORT || '3002', 10),
   provisioningApiUrl: process.env.PROVISIONING_API_URL || 'http://cloudnest-provisioning-api.provisioning.svc.cluster.local:3000',
-  internalApiUrl: process.env.INTERNAL_API_URL || 'http://cloudnest-provisioning-api.provisioning.svc.cluster.local:8081',
+  internalApiUrl: process.env.INTERNAL_API_URL || process.env.PROVISIONING_INTERNAL_URL || 'http://cloudnest-provisioning-api.provisioning.svc.cluster.local:8081',
   internalToken: process.env.INTERNAL_TOKEN || 'sift-internal-secret-token',
   pollIntervalMs: parseInt(process.env.POLL_INTERVAL_MS || '15000', 10),
 
@@ -50,6 +50,8 @@ const CONFIG = {
   tbMqttUrl: process.env.TB_MQTT_URL || 'mqtt://thingsboard.observability.svc.cluster.local:1883',
   tbGatewayToken: process.env.TB_GATEWAY_TOKEN || 'tb-gateway-token',
   tbHttpUrl: process.env.TB_HTTP_URL || 'http://thingsboard.observability.svc.cluster.local:8080',
+  tbAdminEmail: process.env.TB_ADMIN_EMAIL || 'tenant@thingsboard.org',
+  tbAdminPassword: process.env.TB_ADMIN_PASSWORD || 'tenant',
 };
 
 // Metrics
@@ -71,27 +73,126 @@ const activeChannels = new Map();
 // Pending activity reports batch for Phase 6C (POST /internal/devices/seen)
 let pendingReports = [];
 
+// Ensure the ThingsBoard Gateway device & access token exist in ThingsBoard CE
+let tbGatewayProvisioned = false;
+async function ensureThingsBoardGateway() {
+  if (tbGatewayProvisioned) return true;
+  try {
+    const fetch = (await import('node-fetch')).default;
+    const loginRes = await fetch(`${CONFIG.tbHttpUrl}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        username: CONFIG.tbAdminEmail,
+        password: CONFIG.tbAdminPassword,
+      }),
+    });
+    if (!loginRes.ok) return false;
+
+    const { token } = await loginRes.json();
+    const headers = {
+      'Content-Type': 'application/json',
+      'X-Authorization': `Bearer ${token}`,
+    };
+
+    const devRes = await fetch(`${CONFIG.tbHttpUrl}/api/tenant/devices?deviceName=cloudnest-tb-gateway`, { headers });
+    let dev = devRes.ok ? await devRes.json() : null;
+
+    if (!dev || !dev.id) {
+      const createRes = await fetch(`${CONFIG.tbHttpUrl}/api/device?accessToken=${encodeURIComponent(CONFIG.tbGatewayToken)}`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          name: 'cloudnest-tb-gateway',
+          type: 'Gateway',
+          label: 'The-SIFT Telemetry Gateway',
+          additionalInfo: { gateway: true },
+        }),
+      });
+      if (createRes.ok) {
+        tbGatewayProvisioned = true;
+        logger.info('Provisioned ThingsBoard Gateway device', { token: CONFIG.tbGatewayToken });
+        return true;
+      }
+    } else {
+      const credRes = await fetch(`${CONFIG.tbHttpUrl}/api/device/${dev.id.id}/credentials`, { headers });
+      if (credRes.ok) {
+        const cred = await credRes.json();
+        if (cred.credentialsId !== CONFIG.tbGatewayToken) {
+          cred.credentialsId = CONFIG.tbGatewayToken;
+          await fetch(`${CONFIG.tbHttpUrl}/api/device/credentials`, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify(cred),
+          });
+        }
+      }
+      tbGatewayProvisioned = true;
+      return true;
+    }
+  } catch {
+    // ThingsBoard HTTP server may still be starting up
+  }
+  return false;
+}
+
 // Initialize ThingsBoard MQTT Gateway client
 let tbMqttClient = null;
-function initThingsBoardClient() {
-  logger.info('Connecting to ThingsBoard MQTT broker', { url: CONFIG.tbMqttUrl });
+let tbWasConnected = false;
+
+function connectThingsBoardMqtt() {
+  if (tbMqttClient) {
+    try { tbMqttClient.end(true); } catch (_) {}
+  }
+
   tbMqttClient = mqtt.connect(CONFIG.tbMqttUrl, {
     username: CONFIG.tbGatewayToken,
-    clientId: 'cloudnest-tb-bridge',
+    clientId: `cloudnest-tb-bridge-${process.pid}`,
     reconnectPeriod: 5000,
   });
 
   tbMqttClient.on('connect', () => {
+    tbWasConnected = true;
     logger.info('Connected to ThingsBoard Gateway MQTT');
   });
 
-  tbMqttClient.on('error', (err) => {
-    logger.error('ThingsBoard MQTT connection error', { error: err.message });
+  tbMqttClient.on('error', async (err) => {
+    const msg = err && err.message ? err.message : '';
+    if (msg.includes('Not authorized') || msg.includes('Bad username or password')) {
+      tbGatewayProvisioned = false;
+      const ready = await ensureThingsBoardGateway();
+      if (ready) {
+        setTimeout(connectThingsBoardMqtt, 2000);
+      }
+      return;
+    }
+    if (tbWasConnected) {
+      logger.error('ThingsBoard MQTT connection error', { error: msg });
+    }
   });
 
   tbMqttClient.on('close', () => {
-    logger.warn('ThingsBoard MQTT connection closed');
+    if (tbWasConnected) {
+      tbWasConnected = false;
+      logger.warn('ThingsBoard MQTT connection closed');
+    }
   });
+}
+
+async function initThingsBoardClient() {
+  logger.info('Connecting to ThingsBoard MQTT broker', { url: CONFIG.tbMqttUrl });
+  await ensureThingsBoardGateway();
+  connectThingsBoardMqtt();
+
+  // Periodically check if ThingsBoard finished booting and needs gateway provisioning/reconnect
+  setInterval(async () => {
+    if (!tbMqttClient || !tbMqttClient.connected) {
+      const ready = await ensureThingsBoardGateway();
+      if (ready && (!tbMqttClient || tbMqttClient.disconnected || !tbMqttClient.connected)) {
+        connectThingsBoardMqtt();
+      }
+    }
+  }, 10000);
 }
 
 // Forward telemetry to ThingsBoard (Gateway API)
@@ -370,8 +471,8 @@ app.get('/metrics', (req, res) => {
 initThingsBoardClient();
 initMagistralaClient();
 
+setTimeout(pollProvisioningApi, 2500);
 setInterval(pollProvisioningApi, CONFIG.pollIntervalMs);
-pollProvisioningApi();
 
 app.listen(CONFIG.port, () => {
   logger.info(`CloudNest tb-bridge listening on port ${CONFIG.port}`);

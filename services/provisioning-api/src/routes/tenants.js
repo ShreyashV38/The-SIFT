@@ -161,7 +161,7 @@ router.post('/', (req, res, next) => {
     const haUrl = deployment.url || `http://${cleanSlug}.${config.domain}:8123`;
     const haCredentials = deployment.haCredentials || {
       username: config.haUsername,
-      password: config.haPassword,
+      password: config.getTenantHaPassword(cleanSlug),
     };
 
     const ownerAccount = db.prepare('SELECT email, display_name FROM accounts WHERE id = ?').get(accountId);
@@ -267,7 +267,7 @@ router.get('/:slug/ha-access', requireAuth, requireRole('member'), (req, res) =>
     haUrl,
     url: haUrl,
     username: config.haUsername,
-    password: config.haPassword,
+    password: config.getTenantHaPassword(req.tenant.slug),
     note: 'Everyone in your household uses this one login.',
   });
 });

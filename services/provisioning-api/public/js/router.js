@@ -85,28 +85,28 @@ class Router {
   resolveViewLabel(hash) {
     if (hash === '#/login') return 'Sign In';
     if (hash === '#/register') return 'Create Account';
-    if (hash === '#/create-household') return 'Provision Household';
-    if (hash.startsWith('#/help')) return 'Cloud Documentation';
+    if (hash === '#/create-household') return 'Create Household';
+    if (hash.startsWith('#/help')) return 'Help Guide';
 
     const tenantMatch = hash.match(/^#\/t\/([^/]+)(?:\/(.*))?$/);
     if (tenantMatch) {
       const subpath = tenantMatch[2] || '';
       if (!subpath) return 'Overview';
       if (subpath === 'devices') return 'Devices';
-      if (subpath === 'devices/new') return 'Provision Hardware';
-      if (subpath.startsWith('devices/')) return 'Hardware Inspector';
-      if (subpath === 'members') return 'Members & RBAC';
-      if (subpath === 'plan') return 'Plan & Quotas';
+      if (subpath === 'devices/new') return 'Add Device';
+      if (subpath.startsWith('devices/')) return 'Device Details';
+      if (subpath === 'members') return 'Members';
+      if (subpath === 'plan') return 'Plan';
     }
-    return 'Workspace';
+    return 'Overview';
   }
 
   renderThemeToggleButton() {
     const isLight = getCurrentTheme() === 'light';
     return `
-      <button type="button" id="theme-toggle-btn" class="theme-toggle-btn" aria-label="Toggle color theme" title="Switch between Carbon Dark and Titanium Light">
+      <button type="button" id="theme-toggle-btn" class="theme-toggle-btn" aria-label="Toggle color theme" title="Switch between Dark Mode and Light Mode">
         ${isLight ? ICONS.moon : ICONS.sun}
-        <span>${isLight ? 'Carbon Dark' : 'Titanium Light'}</span>
+        <span>${isLight ? 'Dark Mode' : 'Light Mode'}</span>
       </button>
     `;
   }
@@ -153,11 +153,7 @@ class Router {
 
       if (this.topbarActions) {
         this.topbarActions.innerHTML = `
-          <div class="cloud-status-pill">
-            <span class="led-dot led-emerald"></span>
-            <span>CLOUD READY</span>
-          </div>
-          <a href="#/help/esp32" class="btn btn-ghost btn-sm ${isHelp ? 'active' : ''}">Documentation</a>
+          <a href="#/help" class="btn btn-ghost btn-sm ${isHelp ? 'active' : ''}">Help</a>
           <a href="#/login" class="btn ${isLogin ? 'btn-secondary' : 'btn-ghost'} btn-sm">Sign In</a>
           <a href="#/register" class="btn ${isRegister ? 'btn-primary' : 'btn-secondary'} btn-sm">Register</a>
           ${this.renderThemeToggleButton()}
@@ -173,7 +169,7 @@ class Router {
     const tenants = this.session.tenants || [];
     const activeTenant = tenants.find(t => t.slug === this.currentSlug) || tenants[0] || null;
     const user = this.session.account || {};
-    const userName = user.displayName || user.email || 'Operator';
+    const userName = user.displayName || user.email || 'User';
     const userEmail = user.email || '';
     const userInitial = userName.charAt(0).toUpperCase();
     const activeRole = activeTenant?.role || 'member';
@@ -193,10 +189,6 @@ class Router {
     // Topbar Right Actions
     if (this.topbarActions) {
       this.topbarActions.innerHTML = `
-        <div class="cloud-status-pill" title="Isolated Kubernetes & MQTT Cloud Plane Operational">
-          <span class="led-dot led-emerald"></span>
-          <span>CLOUD ONLINE</span>
-        </div>
         ${this.renderThemeToggleButton()}
       `;
       this.bindThemeToggle(this.topbarActions);
@@ -256,7 +248,7 @@ class Router {
       const isHelp = currentHash.startsWith('#/help');
 
       this.sidebarNav.innerHTML = `
-        <div class="nav-section-title">Workspace</div>
+        <div class="nav-section-title">Household</div>
         ${slug ? `
           <a href="#/t/${slug}" class="sidebar-link ${isOverview ? 'active' : ''}">
             ${ICONS.overview}
@@ -272,18 +264,18 @@ class Router {
           </a>
           <a href="#/t/${slug}/plan" class="sidebar-link ${isPlan ? 'active' : ''}">
             ${ICONS.plan}
-            <span>Plan &amp; Quotas</span>
+            <span>Plan</span>
           </a>
         ` : `
           <a href="#/create-household" class="sidebar-link ${currentHash === '#/create-household' ? 'active' : ''}">
             ${ICONS.plus}
-            <span>Provision Household</span>
+            <span>Create Household</span>
           </a>
         `}
         <div class="nav-section-title" style="margin-top: 12px;">Resources</div>
-        <a href="#/help/esp32" class="sidebar-link ${isHelp ? 'active' : ''}">
+        <a href="#/help" class="sidebar-link ${isHelp ? 'active' : ''}">
           ${ICONS.docs}
-          <span>Documentation</span>
+          <span>Help</span>
         </a>
       `;
 
@@ -340,9 +332,9 @@ class Router {
     this.renderHeader();
     const hash = window.location.hash || '#/';
 
-    // Public Documentation route
-    if (hash === '#/help/esp32' || hash.startsWith('#/help')) {
-      announce('Navigated to Cloud Documentation Hub');
+    // Public Help route
+    if (hash === '#/help' || hash === '#/help/esp32' || hash.startsWith('#/help')) {
+      announce('Navigated to Help Guide');
       renderHelp(this.container, this);
       return;
     }
@@ -388,7 +380,7 @@ class Router {
 
     // Create household wizard
     if (hash === '#/create-household') {
-      announce('Navigated to household provisioning');
+      announce('Navigated to create household');
       renderCreateHousehold(this.container, this);
       return;
     }
@@ -402,19 +394,19 @@ class Router {
       this.renderHeader();
 
       if (!subpath) {
-        announce(`Navigated to ${slug} workspace overview`);
+        announce(`Navigated to ${slug} overview`);
         renderHome(this.container, slug, this);
         return;
       }
 
       if (subpath === 'devices/new') {
-        announce('Navigated to cloud hardware provisioning');
+        announce('Navigated to add device');
         renderAddDevice(this.container, slug, this);
         return;
       }
 
       if (subpath === 'devices') {
-        announce('Navigated to connected hardware');
+        announce('Navigated to smart devices');
         renderDevices(this.container, slug, this);
         return;
       }
@@ -422,19 +414,19 @@ class Router {
       const devDetailMatch = subpath.match(/^devices\/([^/]+)$/);
       if (devDetailMatch) {
         const deviceId = devDetailMatch[1];
-        announce(`Navigated to hardware inspector for device ${deviceId}`);
+        announce(`Navigated to device details for device ${deviceId}`);
         renderDeviceDetail(this.container, slug, deviceId, this);
         return;
       }
 
       if (subpath === 'members') {
-        announce('Navigated to household access and members');
+        announce('Navigated to household members');
         renderMembers(this.container, slug, this);
         return;
       }
 
       if (subpath === 'plan') {
-        announce('Navigated to infrastructure tier and quotas');
+        announce('Navigated to household plan');
         renderPlan(this.container, slug, this);
         return;
       }
@@ -449,9 +441,9 @@ class Router {
             <line x1="21" y1="21" x2="16.65" y2="16.65"/>
           </svg>
         </div>
-        <h2>Route Not Found</h2>
-        <p>The requested cloud workspace resource could not be located.</p>
-        <a href="#/" class="btn btn-primary" style="margin-top: var(--space-md);">Return to Workspace</a>
+        <h2>Page Not Found</h2>
+        <p>The page you are looking for could not be found.</p>
+        <a href="#/" class="btn btn-primary" style="margin-top: var(--space-md);">Go to Overview</a>
       </div>
     `;
   }

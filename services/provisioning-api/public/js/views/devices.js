@@ -1,16 +1,16 @@
 // ---------------------------------------------------------------------------
-// The-SIFT Cloud Portal — Connected Hardware Directory (#/t/:slug/devices)
+// The-SIFT Smart Home Portal — Smart Devices List (#/t/:slug/devices)
 // ---------------------------------------------------------------------------
 
 import { api } from '../api.js';
-import { toast, copyToClipboard, formatRelativeTime, renderSpinner } from '../ui.js';
+import { toast, formatRelativeTime, renderSpinner } from '../ui.js';
 
 export async function renderDevices(container, slug, router) {
   container.innerHTML = `
     <div style="text-align: center; padding: var(--space-4xl) var(--space-xl);">
       ${renderSpinner()}
-      <p style="margin-top: var(--space-md); color: var(--text-muted); font-family: var(--font-mono); font-size: 0.8125rem;">
-        QUERYING MAGISTRALA HARDWARE REGISTRY...
+      <p style="margin-top: var(--space-md); color: var(--text-muted); font-size: 0.84375rem;">
+        Loading your smart devices...
       </p>
     </div>
   `;
@@ -25,7 +25,7 @@ export async function renderDevices(container, slug, router) {
     container.innerHTML = `
       <div class="card" style="max-width: 600px; margin: 2rem auto;">
         <div class="banner banner-danger">
-          <strong>Hardware Registry Error:</strong> ${err.message}
+          <strong>Could not load devices:</strong> ${err.message}
         </div>
         <button id="back-home-btn" class="btn btn-secondary">Back to Overview</button>
       </div>
@@ -47,9 +47,7 @@ export async function renderDevices(container, slug, router) {
     return allDevices.filter(dev => {
       const q = searchQuery.toLowerCase();
       const matchesSearch = !q ||
-        (dev.name && dev.name.toLowerCase().includes(q)) ||
-        (dev.mgClientId && dev.mgClientId.toLowerCase().includes(q)) ||
-        (String(dev.id).includes(q));
+        (dev.name && dev.name.toLowerCase().includes(q));
 
       const matchesType = typeFilter === 'all' || dev.kind === typeFilter;
 
@@ -78,23 +76,23 @@ export async function renderDevices(container, slug, router) {
 
     if (emptyRow) emptyRow.style.display = 'none';
     tableBody.innerHTML = filtered.map(dev => {
-      const thingId = dev.mgClientId || `dev_${dev.id}`;
-      const provisionedDate = dev.createdAt
+      const addedDate = dev.createdAt
         ? new Date(dev.createdAt).toLocaleDateString()
         : '—';
 
       let statusPill = '';
       if (dev.status === 'online') {
-        statusPill = `<span class="badge badge-online"><span class="led-dot led-emerald"></span>ONLINE</span>`;
+        statusPill = `<span class="badge badge-online"><span class="led-dot led-emerald"></span>Online</span>`;
       } else if (dev.status === 'pending') {
-        statusPill = `<span class="badge badge-pending"><span class="led-dot led-amber"></span>PENDING</span>`;
+        statusPill = `<span class="badge badge-pending"><span class="led-dot led-amber"></span>Waiting for data</span>`;
       } else if (dev.status === 'revoked') {
-        statusPill = `<span class="badge badge-revoked"><span class="led-dot led-rose"></span>REVOKED</span>`;
+        statusPill = `<span class="badge badge-revoked"><span class="led-dot led-rose"></span>Removed</span>`;
       } else {
-        statusPill = `<span class="badge badge-offline"><span class="led-dot led-muted"></span>OFFLINE (${formatRelativeTime(dev.lastSeenAt)})</span>`;
+        statusPill = `<span class="badge badge-offline"><span class="led-dot led-muted"></span>Offline (${formatRelativeTime(dev.lastSeenAt)})</span>`;
       }
 
-      const isSensor = dev.kind === 'sensor';
+      const isSensor = dev.kind !== 'switch';
+      const typeLabel = isSensor ? 'Sensor' : 'Switch';
 
       return `
         <tr>
@@ -109,27 +107,18 @@ export async function renderDevices(container, slug, router) {
               </div>
               <div>
                 <a href="#/t/${slug}/devices/${dev.id}" style="color: var(--text-main); font-weight: 600;">${dev.name}</a>
-                <div class="mono" style="font-size: 0.7rem; color: var(--text-muted);">ID #${dev.id}</div>
               </div>
             </div>
           </td>
-          <td><span class="badge badge-role">${dev.kind}</span></td>
+          <td><span class="badge badge-role">${typeLabel}</span></td>
           <td>${statusPill}</td>
-          <td>
-            <div style="display: inline-flex; align-items: center; gap: 6px;">
-              <code style="font-size: 0.75rem; max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${thingId}">${thingId}</code>
-              <button type="button" class="btn btn-ghost btn-sm copy-thing-btn" data-thing="${thingId}" style="padding: 3px 6px; font-size: 0.6875rem;">
-                Copy
-              </button>
-            </div>
-          </td>
-          <td class="mono" style="font-size: 0.78125rem;">${provisionedDate}</td>
+          <td class="mono" style="font-size: 0.78125rem;">${addedDate}</td>
           <td style="text-align: right;">
             <div style="display: inline-flex; align-items: center; gap: 6px;">
-              <a href="#/t/${slug}/devices/${dev.id}" class="btn btn-secondary btn-sm">Inspect</a>
+              <a href="#/t/${slug}/devices/${dev.id}" class="btn btn-secondary btn-sm">View</a>
               ${canManage && dev.status !== 'revoked' ? `
-                <button type="button" class="btn btn-danger btn-sm revoke-row-btn" data-id="${dev.id}" data-name="${dev.name}">
-                  Revoke
+                <button type="button" class="btn btn-danger btn-sm remove-row-btn" data-id="${dev.id}" data-name="${dev.name}">
+                  Remove
                 </button>
               ` : ''}
             </div>
@@ -138,20 +127,14 @@ export async function renderDevices(container, slug, router) {
       `;
     }).join('');
 
-    tableBody.querySelectorAll('.copy-thing-btn').forEach(btn => {
-      btn.addEventListener('click', function() {
-        copyToClipboard(this.dataset.thing, this, 'Copy');
-      });
-    });
-
-    tableBody.querySelectorAll('.revoke-row-btn').forEach(btn => {
-      btn.addEventListener('click', async function() {
+    tableBody.querySelectorAll('.remove-row-btn').forEach(btn => {
+      btn.addEventListener('click', async function () {
         const id = this.dataset.id;
         const name = this.dataset.name;
-        if (!confirm(`Revoke cloud access for hardware endpoint "${name}"?`)) return;
+        if (!confirm(`Remove "${name}" from your household?`)) return;
         try {
           await api.revokeDevice(slug, id);
-          toast(`Revoked hardware endpoint "${name}"`, 'info');
+          toast(`Removed device "${name}"`, 'info');
           renderDevices(container, slug, router);
         } catch (err) {
           toast(err.message, 'error');
@@ -164,15 +147,15 @@ export async function renderDevices(container, slug, router) {
     <div>
       <div class="page-header">
         <div>
-          <h1>Connected Hardware Endpoints</h1>
+          <h1>Smart Devices</h1>
           <p style="margin-bottom: 0; font-size: 0.84375rem;">
-            Provisioned ESP32 microcontrollers and MQTT telemetry nodes (<span class="mono">${usage.count} / ${usage.max}</span> quota allocated).
+            Manage your household sensors and switches (<span class="mono">${usage.count} / ${usage.max}</span> devices used).
           </p>
         </div>
 
         <div class="page-header-actions">
           ${canManage ? `
-            <a href="#/t/${slug}/devices/new" class="btn btn-primary btn-sm">+ Provision Device</a>
+            <a href="#/t/${slug}/devices/new" class="btn btn-primary btn-sm">+ Add Device</a>
           ` : ''}
         </div>
       </div>
@@ -193,49 +176,48 @@ export async function renderDevices(container, slug, router) {
               <line x1="1" y1="14" x2="4" y2="14"/>
             </svg>
           </div>
-          <h2>No Hardware Endpoints Provisioned</h2>
+          <h2>No Smart Devices Added Yet</h2>
           <p style="font-size: 0.84375rem; max-width: 420px; margin: 0 auto var(--space-xl) auto;">
-            Issue Magistrala Thing credentials to connect ESP32 microcontrollers or verify cloud MQTT telemetry pipelines.
+            Add a temperature &amp; humidity sensor or a smart switch to start monitoring and controlling your home.
           </p>
           ${canManage ? `
-            <a href="#/t/${slug}/devices/new" class="btn btn-primary">+ Provision First Device</a>
-          ` : '<p class="form-hint">Contact a household administrator or owner to provision hardware.</p>'}
+            <a href="#/t/${slug}/devices/new" class="btn btn-primary">+ Add Device</a>
+          ` : '<p class="form-hint">Ask the household owner or an admin to add a device.</p>'}
         </div>
       ` : `
-        <!-- Action & Filter Bar -->
+        <!-- Filter Bar -->
         <div class="card" style="padding: 12px 16px; margin-bottom: var(--space-lg);">
           <div style="display: flex; gap: var(--space-md); flex-wrap: wrap; align-items: center; justify-content: space-between;">
             <div style="flex: 1; min-width: 240px;">
-              <input type="search" id="device-search-input" placeholder="Filter by device name or Magistrala Thing ID...">
+              <input type="search" id="device-search-input" placeholder="Search by device name...">
             </div>
 
             <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
               <div class="filter-pills" role="group" aria-label="Filter by status">
                 <button type="button" class="filter-pill active" data-status="all">All</button>
                 <button type="button" class="filter-pill" data-status="active">Active</button>
-                <button type="button" class="filter-pill" data-status="revoked">Revoked</button>
+                <button type="button" class="filter-pill" data-status="revoked">Removed</button>
               </div>
 
               <select id="device-type-filter" style="width: auto; min-width: 140px;">
-                <option value="all">All Hardware Classes</option>
-                <option value="sensor">Telemetry Sensor</option>
-                <option value="switch">Relay / Switch</option>
+                <option value="all">All Types</option>
+                <option value="sensor">Sensor</option>
+                <option value="switch">Switch</option>
               </select>
             </div>
           </div>
         </div>
 
-        <!-- High-Density Technical Hardware Table -->
+        <!-- Smart Devices Table -->
         <div class="card" style="padding: 0; overflow: hidden;">
           <div class="table-container" style="border: none; border-radius: 0;">
             <table>
               <thead>
                 <tr>
                   <th>Device Name</th>
-                  <th>Hardware Class</th>
+                  <th>Type</th>
                   <th>Status</th>
-                  <th>Magistrala Thing ID</th>
-                  <th>Provisioned Date</th>
+                  <th>Added On</th>
                   <th style="text-align: right;">Actions</th>
                 </tr>
               </thead>
@@ -243,7 +225,7 @@ export async function renderDevices(container, slug, router) {
             </table>
           </div>
           <div id="devices-filter-empty" class="empty-state" style="display: none; padding: var(--space-2xl);">
-            <p style="color: var(--text-muted); margin-bottom: 0;">No hardware endpoints match the active filter criteria.</p>
+            <p style="color: var(--text-muted); margin-bottom: 0;">No devices match your search or filter.</p>
           </div>
         </div>
       `}

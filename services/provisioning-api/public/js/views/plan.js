@@ -1,15 +1,15 @@
 // ---------------------------------------------------------------------------
-// The-SIFT Cloud Platform — Plan, Resource Quotas & Tier Allocation (#/t/:slug/plan)
+// The-SIFT Smart Home Portal — Household Plan (#/t/:slug/plan)
 // ---------------------------------------------------------------------------
 
 import { api } from '../api.js';
-import { toast, renderSpinner, formatTierBadge } from '../ui.js';
+import { toast, renderSpinner } from '../ui.js';
 
 export async function renderPlan(container, slug, router) {
   container.innerHTML = `
     <div style="text-align: center; padding: var(--space-3xl) var(--space-xl);">
       ${renderSpinner()}
-      <p style="margin-top: var(--space-md); color: var(--text-muted); font-size: 0.85rem;">Loading cloud infrastructure tier & resource quotas...</p>
+      <p style="margin-top: var(--space-md); color: var(--text-muted); font-size: 0.85rem;">Loading household plan...</p>
     </div>
   `;
 
@@ -23,7 +23,7 @@ export async function renderPlan(container, slug, router) {
     container.innerHTML = `
       <div class="card" style="max-width: 600px; margin: 2rem auto;">
         <div class="banner banner-danger">
-          <strong>Failed to load infrastructure plan:</strong> ${err.message}
+          <strong>Could not load plan:</strong> ${err.message}
         </div>
         <button id="back-home-btn" class="btn btn-secondary btn-sm">Back to Overview</button>
       </div>
@@ -33,7 +33,7 @@ export async function renderPlan(container, slug, router) {
   }
 
   const tenant = tenantData.tenant || {};
-  const currentPlan = tenant.plan || 'single';
+  const currentPlan = tenant.plan === 'family' ? 'family' : 'single';
   const limits = tenantData.limits || { seats: { used: 1, max: 1 }, devices: { used: 0, max: 10 } };
   const plans = configData.plans || {
     single: { seats: 1, devices: 10 },
@@ -41,278 +41,158 @@ export async function renderPlan(container, slug, router) {
   };
   const isOwner = tenantData.callerRole === 'owner';
 
-  // Determine whether user previously selected PRO visual tier on top of 'family' backend plan
-  const storedUiTier = localStorage.getItem(`sift-ui-tier-${slug}`);
-  const activeTierKey = currentPlan === 'single'
-    ? 'free'
-    : (storedUiTier === 'pro' ? 'pro' : 'home');
-
   const seatPct = Math.min(100, Math.round((limits.seats.used / Math.max(1, limits.seats.max)) * 100));
   const devicePct = Math.min(100, Math.round((limits.devices.used / Math.max(1, limits.devices.max)) * 100));
-
-  const cpuCeiling = activeTierKey === 'pro' ? '2000m (2.0 vCPU)' : activeTierKey === 'home' ? '1000m (1.0 vCPU)' : '500m (0.5 vCPU)';
-  const ramCeiling = activeTierKey === 'pro' ? '2048 MiB' : activeTierKey === 'home' ? '1024 MiB' : '512 MiB';
 
   container.innerHTML = `
     <div>
       <!-- Page Header -->
       <div class="page-header">
         <div>
-          <h1>Infrastructure Tier & Resource Quotas</h1>
-          <p class="page-subtitle">
-            Manage Kubernetes namespace compute limits, hardware telemetry ceilings, and operator seat capacity for <strong>${tenant.name || slug}</strong>.
+          <h1>Household Plan</h1>
+          <p style="margin-bottom: 0; font-size: 0.84375rem;">
+            View your current usage and switch between the Single Plan and Family Plan.
           </p>
         </div>
         <div class="page-header-actions">
-          <span class="badge badge-accent mono">ACTIVE TIER: ${activeTierKey.toUpperCase()}</span>
-          <a href="#/t/${slug}" class="btn btn-secondary btn-sm">Back to Overview</a>
+          <a href="#/t/${slug}" class="btn btn-secondary btn-sm">&larr; Back to Overview</a>
         </div>
       </div>
 
-      <!-- Current Resource Utilization Bento Strip -->
-      <div class="bento-grid" style="margin-bottom: var(--space-xl);">
-        <div class="bento-card">
-          <div class="bento-label">
-            <span>Hardware Telemetry Slots</span>
-            <span class="mono">${devicePct}%</span>
-          </div>
-          <div class="bento-value">${limits.devices.used} <span style="font-size: 0.95rem; color: var(--text-muted); font-weight: 400;">/ ${limits.devices.max}</span></div>
-          <div class="progress-track">
-            <div class="progress-fill ${devicePct >= 90 ? 'progress-fill-danger' : devicePct >= 75 ? 'progress-fill-warning' : 'progress-fill-emerald'}" style="width: ${devicePct}%;"></div>
-          </div>
-          <div class="bento-meta">
-            <span>${Math.max(0, limits.devices.max - limits.devices.used)} slots available</span>
-            <a href="#/t/${slug}/devices" class="inline-link">Devices</a>
-          </div>
-        </div>
-
-        <div class="bento-card">
-          <div class="bento-label">
-            <span>Operator Seat Quota</span>
+      <!-- Current Usage Summary (Strictly 2 Cards: Members & Smart Devices) -->
+      <div class="stat-grid" style="grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); margin-bottom: var(--space-xl);">
+        <div class="stat-card">
+          <div class="stat-label">
+            <span>Members</span>
             <span class="mono">${seatPct}%</span>
           </div>
-          <div class="bento-value">${limits.seats.used} <span style="font-size: 0.95rem; color: var(--text-muted); font-weight: 400;">/ ${limits.seats.max}</span></div>
-          <div class="progress-track">
-            <div class="progress-fill ${seatPct >= 100 ? 'progress-fill-warning' : ''}" style="width: ${seatPct}%;"></div>
+          <div class="stat-value">
+            ${limits.seats.used} <span style="font-size: 0.95rem; color: var(--text-muted); font-weight: 400;">/ ${limits.seats.max} seats used</span>
           </div>
-          <div class="bento-meta">
-            <span>${limits.seats.used >= limits.seats.max ? 'All seats occupied' : `${limits.seats.max - limits.seats.used} seat(s) open`}</span>
-            <a href="#/t/${slug}/members" class="inline-link">Members</a>
+          <div class="quota-bar">
+            <div class="quota-fill" style="width: ${seatPct}%;"></div>
           </div>
-        </div>
-
-        <div class="bento-card">
-          <div class="bento-label">
-            <span>Namespace CPU Quota</span>
-            <span class="badge badge-online"><span class="led-dot led-emerald"></span>ENFORCED</span>
-          </div>
-          <div class="bento-value mono" style="font-size: 1.25rem;">${cpuCeiling}</div>
-          <div class="bento-meta">
-            <span>K8s ResourceQuota</span>
-            <span class="mono">tenant-${tenant.slug || slug}</span>
+          <div class="stat-hint">
+            ${limits.seats.used >= limits.seats.max ? 'All member seats in use' : `${limits.seats.max - limits.seats.used} seat(s) available`}
           </div>
         </div>
 
-        <div class="bento-card">
-          <div class="bento-label">
-            <span>Dedicated Pod Memory</span>
-            <span class="badge badge-accent">ISOLATED</span>
+        <div class="stat-card">
+          <div class="stat-label">
+            <span>Smart Devices</span>
+            <span class="mono">${devicePct}%</span>
           </div>
-          <div class="bento-value mono" style="font-size: 1.25rem;">${ramCeiling}</div>
-          <div class="bento-meta">
-            <span>Home Assistant + Bridge</span>
-            <span class="mono">Guaranteed QoS</span>
+          <div class="stat-value">
+            ${limits.devices.used} <span style="font-size: 0.95rem; color: var(--text-muted); font-weight: 400;">/ ${limits.devices.max} devices used</span>
+          </div>
+          <div class="quota-bar">
+            <div class="quota-fill emerald" style="width: ${devicePct}%;"></div>
+          </div>
+          <div class="stat-hint">
+            ${Math.max(0, limits.devices.max - limits.devices.used)} device slot(s) available
           </div>
         </div>
       </div>
 
-      <!-- 3-Column Architectural Pricing & Resource Matrix -->
+      <!-- Plan Selection Grid — Strictly Two Plans -->
       <div class="card">
         <div class="card-header">
           <div>
-            <div class="card-title">Cloud Infrastructure Allocation Matrix</div>
-            <div class="card-subtitle">
+            <h3 style="margin-bottom: 2px;">Available Plans</h3>
+            <p style="font-size: 0.8125rem; color: var(--text-muted); margin-bottom: 0;">
               ${isOwner
-                ? 'Select a cloud tier to dynamically scale Kubernetes ResourceQuotas, MQTT broker rate limits, and household seat capacity.'
-                : 'Only the primary Household Owner can modify cloud infrastructure tiers.'}
-            </div>
+                ? 'Choose the plan that fits your household.'
+                : 'Only the household owner can change the household plan.'}
+            </p>
           </div>
-          <span class="badge badge-neutral mono">INSTANT ZERO-DOWNTIME SCALING</span>
         </div>
 
-        <div class="grid-3" style="margin-top: var(--space-md);">
-          <!-- FREE TIER (Backend: single) -->
-          <div class="plan-card ${activeTierKey === 'free' ? 'plan-selected' : ''}">
-            <div>
-              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.35rem;">
-                <span class="badge badge-neutral mono">FREE TIER</span>
-                ${activeTierKey === 'free' ? `<span class="badge badge-online"><span class="led-dot led-emerald"></span>CURRENT</span>` : ''}
-              </div>
-              <div class="plan-name">Single Sandbox</div>
-              <div class="plan-price">$0 <span>/ month</span></div>
-              <p class="plan-desc">
-                Isolated single-operator cloud namespace for essential smart-home telemetry and hardware prototyping.
-              </p>
-
-              <ul class="feature-list">
-                <li>
-                  <span class="feature-check">✓</span>
-                  <span><strong>${plans.single.devices} Connected Devices</strong> max</span>
-                </li>
-                <li>
-                  <span class="feature-check">✓</span>
-                  <span><strong>${plans.single.seats} Operator Seat</strong> (Owner only)</span>
-                </li>
-                <li>
-                  <span class="feature-check">✓</span>
-                  <span><strong>0.5 vCPU / 512 MiB RAM</strong> Pod Quota</span>
-                </li>
-                <li>
-                  <span class="feature-check">✓</span>
-                  <span><strong>7-Day</strong> Telemetry State Retention</span>
-                </li>
-                <li>
-                  <span class="feature-check">✓</span>
-                  <span><strong>Standard Community</strong> Support</span>
-                </li>
-              </ul>
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: var(--space-lg);">
+          <!-- Single Plan -->
+          <div class="plan-card ${currentPlan === 'single' ? 'plan-selected' : ''}">
+            <div style="display: flex; justify-content: space-between; align-items: center; width: 100%; margin-bottom: 6px;">
+              <h3 style="margin-bottom: 0;">Single Plan</h3>
+              ${currentPlan === 'single' ? `<span class="badge badge-online"><span class="led-dot led-emerald"></span>Current Plan</span>` : ''}
             </div>
+            <p style="font-size: 0.8125rem; color: var(--text-secondary);">
+              Ideal for personal apartments and individual testing.
+            </p>
 
-            <div style="margin-top: var(--space-lg); padding-top: var(--space-md); border-top: 1px solid var(--border-subtle);">
-              ${activeTierKey === 'free' ? `
-                <button class="btn btn-secondary btn-sm btn-full" disabled>Active Infrastructure Tier</button>
+            <ul class="feature-list" style="margin-top: var(--space-md); width: 100%;">
+              <li>
+                <span class="badge badge-role">Seat</span>
+                <span><strong>${plans.single.seats} Member</strong></span>
+              </li>
+              <li>
+                <span class="badge badge-role">Quota</span>
+                <span><strong>${plans.single.devices} Devices</strong></span>
+              </li>
+            </ul>
+
+            <div style="margin-top: var(--space-lg); width: 100%; padding-top: var(--space-md); border-top: 1px solid var(--border);">
+              ${currentPlan === 'single' ? `
+                <button class="btn btn-secondary btn-sm btn-full" disabled>Current Plan</button>
               ` : isOwner ? `
-                <button class="btn btn-secondary btn-sm btn-full tier-switch-btn" data-backend-plan="single" data-ui-tier="free" data-label="Free (Single Sandbox)">
-                  Scale Down to Free Tier
+                <button id="switch-single-btn" class="btn btn-secondary btn-sm btn-full">
+                  Switch to Single Plan
                 </button>
               ` : `
-                <button class="btn btn-secondary btn-sm btn-full" disabled>Owner Permission Required</button>
+                <button class="btn btn-secondary btn-sm btn-full" disabled>Owner Only</button>
               `}
             </div>
           </div>
 
-          <!-- HOME TIER (Backend: family) -->
-          <div class="plan-card ${activeTierKey === 'home' ? 'plan-selected' : ''}">
-            <div>
-              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.35rem;">
-                <span class="badge badge-accent mono">HOME TIER</span>
-                ${activeTierKey === 'home' ? `<span class="badge badge-online"><span class="led-dot led-emerald"></span>CURRENT</span>` : `<span class="badge badge-neutral">RECOMMENDED</span>`}
-              </div>
-              <div class="plan-name">Household Cloud</div>
-              <div class="plan-price">$19 <span>/ month</span></div>
-              <p class="plan-desc">
-                Full-featured residential automation cloud with multi-member RBAC and expanded hardware capacity.
-              </p>
-
-              <ul class="feature-list">
-                <li>
-                  <span class="feature-check">✓</span>
-                  <span><strong>${plans.family.devices} Connected Devices</strong> max</span>
-                </li>
-                <li>
-                  <span class="feature-check">✓</span>
-                  <span><strong>${plans.family.seats} Household Seats</strong> (Admin & Member RBAC)</span>
-                </li>
-                <li>
-                  <span class="feature-check">✓</span>
-                  <span><strong>1.0 vCPU / 1024 MiB RAM</strong> Pod Quota</span>
-                </li>
-                <li>
-                  <span class="feature-check">✓</span>
-                  <span><strong>30-Day</strong> Telemetry & Command Audit Log</span>
-                </li>
-                <li>
-                  <span class="feature-check">✓</span>
-                  <span><strong>Priority Cloud</strong> SLA & mTLS Broker</span>
-                </li>
-              </ul>
+          <!-- Family Plan -->
+          <div class="plan-card ${currentPlan === 'family' ? 'plan-selected' : ''}">
+            <div style="display: flex; justify-content: space-between; align-items: center; width: 100%; margin-bottom: 6px;">
+              <h3 style="margin-bottom: 0;">Family Plan</h3>
+              ${currentPlan === 'family' ? `<span class="badge badge-online"><span class="led-dot led-emerald"></span>Current Plan</span>` : ''}
             </div>
+            <p style="font-size: 0.8125rem; color: var(--text-secondary);">
+              Collaborative household with multi-user access.
+            </p>
 
-            <div style="margin-top: var(--space-lg); padding-top: var(--space-md); border-top: 1px solid var(--border-subtle);">
-              ${activeTierKey === 'home' ? `
-                <button class="btn btn-secondary btn-sm btn-full" disabled>Active Infrastructure Tier</button>
+            <ul class="feature-list" style="margin-top: var(--space-md); width: 100%;">
+              <li>
+                <span class="badge badge-role">Seats</span>
+                <span><strong>${plans.family.seats} Members</strong></span>
+              </li>
+              <li>
+                <span class="badge badge-role">Quota</span>
+                <span><strong>${plans.family.devices} Devices</strong></span>
+              </li>
+            </ul>
+
+            <div style="margin-top: var(--space-lg); width: 100%; padding-top: var(--space-md); border-top: 1px solid var(--border);">
+              ${currentPlan === 'family' ? `
+                <button class="btn btn-secondary btn-sm btn-full" disabled>Current Plan</button>
               ` : isOwner ? `
-                <button class="btn btn-primary btn-sm btn-full tier-switch-btn" data-backend-plan="family" data-ui-tier="home" data-label="Home (Household Cloud)">
-                  Provision Home Tier
+                <button id="switch-family-btn" class="btn btn-primary btn-sm btn-full">
+                  Switch to Family Plan
                 </button>
               ` : `
-                <button class="btn btn-secondary btn-sm btn-full" disabled>Owner Permission Required</button>
-              `}
-            </div>
-          </div>
-
-          <!-- PRO TIER (Backend: family + Pro profile) -->
-          <div class="plan-card ${activeTierKey === 'pro' ? 'plan-selected' : ''}">
-            <div>
-              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.35rem;">
-                <span class="badge badge-online mono">PRO TIER</span>
-                ${activeTierKey === 'pro' ? `<span class="badge badge-online"><span class="led-dot led-emerald"></span>CURRENT</span>` : ''}
-              </div>
-              <div class="plan-name">High-Density Fleet</div>
-              <div class="plan-price">$49 <span>/ month</span></div>
-              <p class="plan-desc">
-                High-throughput telemetry ingestion with dedicated compute headroom for dense sensor & actuator deployments.
-              </p>
-
-              <ul class="feature-list">
-                <li>
-                  <span class="feature-check">✓</span>
-                  <span><strong>${plans.family.devices} High-Frequency Devices</strong> (Burst QoS)</span>
-                </li>
-                <li>
-                  <span class="feature-check">✓</span>
-                  <span><strong>${plans.family.seats} Operator Seats</strong> + Full RBAC Matrix</span>
-                </li>
-                <li>
-                  <span class="feature-check">✓</span>
-                  <span><strong>2.0 vCPU / 2048 MiB RAM</strong> Dedicated Pod</span>
-                </li>
-                <li>
-                  <span class="feature-check">✓</span>
-                  <span><strong>90-Day</strong> SenML Telemetry Retention</span>
-                </li>
-                <li>
-                  <span class="feature-check">✓</span>
-                  <span><strong>24/7 Dedicated Engineering</strong> Support</span>
-                </li>
-              </ul>
-            </div>
-
-            <div style="margin-top: var(--space-lg); padding-top: var(--space-md); border-top: 1px solid var(--border-subtle);">
-              ${activeTierKey === 'pro' ? `
-                <button class="btn btn-secondary btn-sm btn-full" disabled>Active Infrastructure Tier</button>
-              ` : isOwner ? `
-                <button class="btn btn-primary btn-sm btn-full tier-switch-btn" data-backend-plan="family" data-ui-tier="pro" data-label="Pro (High-Density Fleet)">
-                  Upgrade to Pro Tier
-                </button>
-              ` : `
-                <button class="btn btn-secondary btn-sm btn-full" disabled>Owner Permission Required</button>
+                <button class="btn btn-secondary btn-sm btn-full" disabled>Owner Only</button>
               `}
             </div>
           </div>
         </div>
       </div>
 
-      <!-- Delete Household Danger Zone -->
+      <!-- Delete Household Section -->
       ${isOwner ? `
         <div class="card danger-zone">
-          <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: var(--space-sm); margin-bottom: var(--space-sm);">
-            <div>
-              <h3 style="margin-bottom: 0.25rem;">Danger Zone: Decommission Cloud Namespace</h3>
-              <p style="font-size: 0.8125rem; color: var(--text-secondary); margin: 0;">
-                Permanently terminates Kubernetes namespace <code class="mono">tenant-${tenant.slug}</code>, destroys the dedicated Home Assistant instance, revokes all Magistrala Thing credentials, and purges member access.
-              </p>
-            </div>
-            <span class="badge badge-danger"><span class="led-dot led-rose"></span>IRREVERSIBLE</span>
-          </div>
+          <h3 style="margin-bottom: 4px;">Delete Household</h3>
+          <p style="font-size: 0.8125rem; color: var(--text-secondary); margin-bottom: var(--space-lg);">
+            Permanently delete this household, remove all connected devices, and revoke member access.
+          </p>
 
-          <form id="delete-tenant-form" style="max-width: 480px; margin-top: var(--space-md);">
+          <form id="delete-tenant-form" style="max-width: 460px;">
             <div class="form-group">
-              <label for="confirm-slug">Type household identifier <span class="mono" style="color: var(--text-primary);">${tenant.slug}</span> to authorize decommissioning:</label>
-              <input type="text" id="confirm-slug" class="input-mono" required autocomplete="off" placeholder="${tenant.slug}">
+              <label for="confirm-slug">Type <strong class="mono">${tenant.slug}</strong> to confirm deletion:</label>
+              <input type="text" id="confirm-slug" class="mono" required autocomplete="off" placeholder="${tenant.slug}">
             </div>
             <button type="submit" id="delete-tenant-btn" class="btn btn-danger btn-sm" disabled>
-              Permanently Decommission Household
+              Delete Household
             </button>
           </form>
         </div>
@@ -320,38 +200,31 @@ export async function renderPlan(container, slug, router) {
     </div>
   `;
 
-  // Tier switch handlers
-  container.querySelectorAll('.tier-switch-btn').forEach(btn => {
-    btn.addEventListener('click', async () => {
-      const backendPlan = btn.dataset.backendPlan;
-      const uiTier = btn.dataset.uiTier;
-      const label = btn.dataset.label;
+  // Switch to Single Plan
+  container.querySelector('#switch-single-btn')?.addEventListener('click', async () => {
+    if (!confirm(`Switch to the Single Plan? The Single Plan supports up to ${plans.single.seats} member and ${plans.single.devices} devices.`)) {
+      return;
+    }
+    try {
+      await api.updatePlan(slug, 'single');
+      toast('Switched to Single Plan', 'success');
+      await router.refreshSession();
+      renderPlan(container, slug, router);
+    } catch (err) {
+      toast(err.message || 'Could not switch plan', 'error');
+    }
+  });
 
-      if (backendPlan === 'single' && !confirm(`Scale down to ${label}? This enforces a ceiling of ${plans.single.seats} seat and ${plans.single.devices} devices.`)) {
-        return;
-      }
-
-      btn.disabled = true;
-      btn.textContent = 'Applying ResourceQuotas...';
-
-      try {
-        if (backendPlan !== currentPlan) {
-          await api.updatePlan(slug, backendPlan);
-        }
-        try {
-          localStorage.setItem(`sift-ui-tier-${slug}`, uiTier);
-        } catch {
-          // ignore storage errors
-        }
-        toast(`Cloud tier updated to ${label}`, 'success');
-        await router.refreshSession();
-        renderPlan(container, slug, router);
-      } catch (err) {
-        toast(err.message || 'Failed to update infrastructure tier', 'error');
-        btn.disabled = false;
-        btn.textContent = `Switch to ${label}`;
-      }
-    });
+  // Switch to Family Plan
+  container.querySelector('#switch-family-btn')?.addEventListener('click', async () => {
+    try {
+      await api.updatePlan(slug, 'family');
+      toast('Switched to Family Plan!', 'success');
+      await router.refreshSession();
+      renderPlan(container, slug, router);
+    } catch (err) {
+      toast(err.message || 'Could not switch plan', 'error');
+    }
   });
 
   // Delete household form
@@ -367,17 +240,17 @@ export async function renderPlan(container, slug, router) {
     deleteForm.addEventListener('submit', async (e) => {
       e.preventDefault();
       deleteBtn.disabled = true;
-      deleteBtn.textContent = 'Decommissioning namespace...';
+      deleteBtn.textContent = 'Deleting household...';
 
       try {
         await api.deleteTenant(slug);
-        toast(`Namespace "${tenant.slug}" decommissioned`, 'info');
+        toast(`Household "${tenant.slug}" deleted`, 'info');
         await router.refreshSession();
         router.navigate('#/');
       } catch (err) {
-        toast(err.message || 'Failed to decommission household', 'error');
+        toast(err.message || 'Could not delete household', 'error');
         deleteBtn.disabled = false;
-        deleteBtn.textContent = 'Permanently Decommission Household';
+        deleteBtn.textContent = 'Delete Household';
       }
     });
   }

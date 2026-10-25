@@ -1,11 +1,11 @@
 // ---------------------------------------------------------------------------
-// The-SIFT Cloud Portal — UI Utilities & Cloud Endpoint Resolvers
+// The-SIFT Smart Home Portal — UI Utilities & Helpers
 // ---------------------------------------------------------------------------
 // - Toast notifications with automatic dismiss and aria-live announcements
 // - Copy helper with visual feedback
-// - Theme persistence (Carbon Dark default / Titanium Light)
-// - Dynamic Cloud Domain & MQTT Endpoint Resolution
-// - In-browser Blob file downloads (sift-device.ino, sift-device.json, sift-device-client.js)
+// - Theme persistence (Dark Mode default / Light Mode)
+// - Dynamic Domain & Broker Endpoint Resolution
+// - In-browser Blob file downloads (sift-device.ino, sift-device.json, one-device.js)
 // ---------------------------------------------------------------------------
 
 const THEME_STORAGE_KEY = 'sift-theme';
@@ -76,19 +76,17 @@ export function resolveHaUrl(slug, tenantUrl, configuredDomain) {
 }
 
 export function formatTierBadge(plan) {
-  if (!plan) return 'FREE';
+  if (!plan) return 'SINGLE';
   const p = String(plan).toLowerCase();
-  if (p === 'family' || p === 'home') return 'HOME';
-  if (p === 'pro') return 'PRO';
-  return 'FREE';
+  if (p === 'family') return 'FAMILY';
+  return 'SINGLE';
 }
 
 export function formatTierName(plan) {
-  if (!plan) return 'Free (Single)';
+  if (!plan) return 'Single Plan';
   const p = String(plan).toLowerCase();
-  if (p === 'family' || p === 'home') return 'Home (Family)';
-  if (p === 'pro') return 'Pro';
-  return 'Free (Single)';
+  if (p === 'family') return 'Family Plan';
+  return 'Single Plan';
 }
 
 // Announce message to assistive technology
@@ -353,17 +351,17 @@ void loop() {
 `;
 }
 
-// Generate Cloud Verification Client Script (sift-device-client.js) in-browser
+// Generate Virtual Device Simulator Script (one-device.js) in-browser
 export function generateOneDeviceScript() {
   const defaultBrokerHost = resolveMqttHost('');
   return `#!/usr/bin/env node
 // ---------------------------------------------------------------------------
-// The-SIFT Cloud Verification Client — sift-device-client.js
+// The-SIFT Virtual Device Simulator — one-device.js
 // ---------------------------------------------------------------------------
-// Production cloud connectivity verification utility for provisioned Thing IDs.
+// Simulates a smart home sensor or switch for your household.
 // Usage:
 //   npm install mqtt
-//   node sift-device-client.js --config ./sift-device.json
+//   node one-device.js --config ./sift-device.json
 // ---------------------------------------------------------------------------
 
 const fs = require('fs');
@@ -382,8 +380,8 @@ for (let i = 0; i < args.length; i++) {
 const resolvedPath = path.resolve(process.cwd(), configPath);
 if (!fs.existsSync(resolvedPath)) {
   console.error(\`Error: Configuration file not found at \${resolvedPath}\`);
-  console.error('Download sift-device.json from The-SIFT Cloud Portal.');
-  console.error('Usage: node sift-device-client.js --config ./sift-device.json');
+  console.error('Download sift-device.json from The-SIFT Smart Home Portal.');
+  console.error('Usage: node one-device.js --config ./sift-device.json');
   process.exit(1);
 }
 
@@ -398,14 +396,14 @@ try {
 const device = cfg.device || {};
 const mqttCfg = cfg.mqtt || {};
 const deviceId = device.id || 'dev_unknown';
-const deviceName = device.name || 'Cloud Hardware Endpoint';
+const deviceName = device.name || 'Smart Device';
 const deviceKind = device.kind || 'sensor';
 const intervalSec = cfg.publishIntervalSeconds || 10;
 
 console.log('========================================================');
-console.log(\` The-SIFT Cloud Verification Client: \${deviceName} (\${deviceKind})\`);
-console.log(\` Cloud Broker: \${mqttCfg.host}:\${mqttCfg.port}\`);
-console.log(\` Thing ID:     \${deviceId}\`);
+console.log(\` The-SIFT Smart Device: \${deviceName} (\${deviceKind})\`);
+console.log(\` Broker:    \${mqttCfg.host}:\${mqttCfg.port}\`);
+console.log(\` Device ID: \${deviceId}\`);
 console.log('========================================================\\n');
 
 let currentTemp = 24.0;

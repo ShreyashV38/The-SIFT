@@ -48,7 +48,7 @@ export function renderLogin(container, router) {
             </div>
             <h1 style="font-size: 1.35rem; margin-bottom: 4px;">Sign in to The-SIFT</h1>
             <p style="color: var(--text-secondary); font-size: 0.8125rem; margin-bottom: 0;">
-              Precision Hardware-Cloud &amp; Household IoT Plane
+              Manage your smart home devices and household
             </p>
           </div>
 
@@ -56,8 +56,8 @@ export function renderLogin(container, router) {
 
           <form id="login-form">
             <div class="form-group">
-              <label for="login-email">Operator Email</label>
-              <input type="email" id="login-email" required autocomplete="email" placeholder="operator@company.io">
+              <label for="login-email">Email Address</label>
+              <input type="email" id="login-email" required autocomplete="email" placeholder="you@example.com">
             </div>
 
             <div class="form-group">
@@ -71,12 +71,12 @@ export function renderLogin(container, router) {
             </div>
 
             <button type="submit" id="login-btn" class="btn btn-primary btn-full" style="margin-top: var(--space-md); padding: 0.7rem;">
-              Continue to Cloud Workspace
+              Sign In
             </button>
           </form>
 
           <div class="auth-footer">
-            New to The-SIFT? <a href="#/register" class="inline-link" style="font-weight: 600;">Create an operator account</a>
+            New to The-SIFT? <a href="#/register" class="inline-link" style="font-weight: 600;">Create an account</a>
           </div>
         </div>
       </div>
@@ -101,7 +101,7 @@ export function renderLogin(container, router) {
       e.preventDefault();
       errorBanner.style.display = 'none';
       btn.disabled = true;
-      btn.textContent = 'Authenticating...';
+      btn.textContent = 'Signing in...';
 
       const email = emailInput.value.trim();
       const password = passwordInput.value;
@@ -112,19 +112,19 @@ export function renderLogin(container, router) {
         if (res.otpRequired) {
           otpToken = res.otpToken;
           maskedEmail = res.email || email;
-          toast('Verification code dispatched to your email', 'info');
+          toast('Verification code sent to your email', 'info');
           renderOtpStep();
         } else {
-          toast('Authenticated with The-SIFT Cloud', 'success');
+          toast('Signed in to The-SIFT', 'success');
           await router.refreshSession();
           router.navigate('#/');
         }
       } catch (err) {
-        errorBanner.textContent = err.message || 'Authentication failed. Verify your credentials.';
+        errorBanner.textContent = err.message || 'Sign in failed. Please check your email and password.';
         errorBanner.style.display = 'block';
       } finally {
         btn.disabled = false;
-        btn.textContent = 'Continue to Cloud Workspace';
+        btn.textContent = 'Sign In';
       }
     });
   }
@@ -137,9 +137,9 @@ export function renderLogin(container, router) {
             <div class="brand-glyph" style="width: 44px; height: 44px; margin: 0 auto var(--space-md) auto; border-radius: var(--radius-md);">
               ${shieldSvg}
             </div>
-            <h1 style="font-size: 1.35rem; margin-bottom: 4px;">Two-Factor Verification</h1>
+            <h1 style="font-size: 1.35rem; margin-bottom: 4px;">Check Your Email</h1>
             <p style="color: var(--text-secondary); font-size: 0.8125rem; margin-bottom: 0;">
-              Enter the 6-digit security code sent to <strong class="mono" style="color: var(--text-main);">${maskedEmail}</strong>
+              Enter the 6-digit verification code sent to <strong class="mono" style="color: var(--text-main);">${maskedEmail}</strong>
             </p>
           </div>
 
@@ -148,7 +148,7 @@ export function renderLogin(container, router) {
 
           <form id="otp-form">
             <div class="form-group">
-              <label for="otp-digit-1" style="text-align: center;">One-Time Security Code</label>
+              <label for="otp-digit-1" style="text-align: center;">6-Digit Verification Code</label>
               <div style="display: flex; justify-content: center; gap: 6px; margin: var(--space-md) 0; align-items: center;">
                 <input type="text" id="otp-digit-1" maxlength="1" class="otp-digit-input" inputmode="numeric" pattern="[0-9]" autocomplete="one-time-code" autofocus>
                 <input type="text" id="otp-digit-2" maxlength="1" class="otp-digit-input" inputmode="numeric" pattern="[0-9]">
@@ -162,7 +162,7 @@ export function renderLogin(container, router) {
             </div>
 
             <button type="submit" id="otp-btn" class="btn btn-primary btn-full" style="padding: 0.7rem;" disabled>
-              Verify &amp; Launch Session
+              Verify &amp; Sign In
             </button>
           </form>
 
@@ -173,7 +173,7 @@ export function renderLogin(container, router) {
           </div>
 
           <div class="auth-footer">
-            <a href="#/login" id="back-to-login" class="inline-link" style="font-size: 0.8125rem;">Back to operator credentials</a>
+            <a href="#/login" id="back-to-login" class="inline-link" style="font-size: 0.8125rem;">Back to Sign In</a>
           </div>
         </div>
       </div>
@@ -251,7 +251,7 @@ export function renderLogin(container, router) {
 
       try {
         const res = await api.verifyOtp(otpToken, code);
-        toast(`Authenticated as ${res.account.displayName}`, 'success');
+        toast(`Signed in as ${res.account.displayName}`, 'success');
         await router.refreshSession();
         router.navigate('#/');
       } catch (err) {
@@ -262,7 +262,7 @@ export function renderLogin(container, router) {
         digits[0].focus();
       } finally {
         btn.disabled = false;
-        btn.textContent = 'Verify & Launch Session';
+        btn.textContent = 'Verify & Sign In';
       }
     });
 

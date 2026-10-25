@@ -22,27 +22,27 @@ echo ""
 # 1. Kill Node.js services running from project
 echo -e "${YELLOW}[1/3] Stopping SIFT Node.js processes...${NC}"
 pkill -f "services/provisioning-api" 2>/dev/null || true
+pkill -f "services/identity-service" 2>/dev/null || true
+pkill -f "services/iot-broker-service" 2>/dev/null || true
 pkill -f "services/tb-bridge" 2>/dev/null || true
 pkill -f "one-device.js" 2>/dev/null || true
 pkill -f "simulator.js" 2>/dev/null || true
 
-# Kill anything listening on 3000, 8081, 8123
-if command -v fuser &>/dev/null; then
-    fuser -k 3000/tcp 2>/dev/null || true
-    fuser -k 8081/tcp 2>/dev/null || true
-    fuser -k 8123/tcp 2>/dev/null || true
-elif command -v lsof &>/dev/null; then
-    lsof -ti :3000 | xargs kill -9 2>/dev/null || true
-    lsof -ti :8081 | xargs kill -9 2>/dev/null || true
-    lsof -ti :8123 | xargs kill -9 2>/dev/null || true
-fi
+# Kill anything listening on SIFT service ports
+for PORT in 3000 3001 3004 8080 8081 8123; do
+    if command -v fuser &>/dev/null; then
+        fuser -k ${PORT}/tcp 2>/dev/null || true
+    elif command -v lsof &>/dev/null; then
+        lsof -ti :${PORT} | xargs kill -9 2>/dev/null || true
+    fi
+done
 echo -e "${GREEN}  SIFT Node.js processes stopped.${NC}"
 
 # 2. Stop Docker containers
 echo ""
 echo -e "${YELLOW}[2/3] Stopping Docker containers...${NC}"
 if command -v docker &>/dev/null; then
-    docker rm -f cloudnest-mqtt sift-mqtt 2>/dev/null || true
+    docker rm -f sift-mqtt cloudnest-mqtt sift-thingsboard sift-ha 2>/dev/null || true
     HA_CONTAINERS=$(docker ps -a -q --filter "name=^/ha-" 2>/dev/null || true)
     if [ -n "$HA_CONTAINERS" ]; then
         docker rm -f $HA_CONTAINERS 2>/dev/null || true
@@ -55,7 +55,7 @@ fi
 # 3. Summary
 echo ""
 echo -e "${YELLOW}[3/3] Port verification...${NC}"
-for PORT in 3000 8081 1883 8123; do
+for PORT in 3000 3001 3004 8080 8081 1883 8123; do
     if command -v nc &>/dev/null && nc -z localhost $PORT 2>/dev/null; then
         echo -e "  Port $PORT: IN USE"
     else

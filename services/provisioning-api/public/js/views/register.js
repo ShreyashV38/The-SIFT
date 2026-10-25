@@ -35,9 +35,9 @@ export function renderRegister(container, router) {
           <div class="brand-glyph" style="width: 44px; height: 44px; margin: 0 auto var(--space-md) auto; border-radius: var(--radius-md);">
             ${brandGlyphSvg}
           </div>
-          <h1 style="font-size: 1.35rem; margin-bottom: 4px;">Create Operator Account</h1>
+          <h1 style="font-size: 1.35rem; margin-bottom: 4px;">Create Your Account</h1>
           <p style="color: var(--text-secondary); font-size: 0.8125rem; margin-bottom: 0;">
-            Provision isolated cloud households &amp; MQTT hardware
+            Set up your smart home in minutes
           </p>
         </div>
 
@@ -45,13 +45,13 @@ export function renderRegister(container, router) {
 
         <form id="register-form">
           <div class="form-group">
-            <label for="reg-name">Operator Display Name</label>
+            <label for="reg-name">Full Name</label>
             <input type="text" id="reg-name" required placeholder="Alex Mercer" maxlength="60">
           </div>
 
           <div class="form-group">
-            <label for="reg-email">Work or Personal Email</label>
-            <input type="email" id="reg-email" required placeholder="alex@company.io">
+            <label for="reg-email">Email Address</label>
+            <input type="email" id="reg-email" required placeholder="alex@example.com">
           </div>
 
           <div class="form-group">
@@ -75,12 +75,12 @@ export function renderRegister(container, router) {
           </div>
 
           <button type="submit" id="reg-btn" class="btn btn-primary btn-full" style="margin-top: var(--space-md); padding: 0.7rem;">
-            Initialize Operator Account
+            Create Account
           </button>
         </form>
 
         <div class="auth-footer">
-          Already registered? <a href="#/login" class="inline-link" style="font-weight: 600;">Sign in</a>
+          Already have an account? <a href="#/login" class="inline-link" style="font-weight: 600;">Sign in</a>
         </div>
       </div>
     </div>
@@ -124,18 +124,18 @@ export function renderRegister(container, router) {
     }
 
     btn.disabled = true;
-    btn.textContent = 'Provisioning account...';
+    btn.textContent = 'Creating account...';
 
     try {
       await api.register(email, name, password);
-      toast('Operator account created. Please sign in.', 'success');
+      toast('Account created! Please sign in.', 'success');
       router.navigate('#/login');
     } catch (err) {
       errorBanner.textContent = err.message || 'Registration failed.';
       errorBanner.style.display = 'block';
     } finally {
       btn.disabled = false;
-      btn.textContent = 'Initialize Operator Account';
+      btn.textContent = 'Create Account';
     }
   });
 }

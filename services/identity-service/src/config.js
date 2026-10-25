@@ -1,9 +1,10 @@
+const path = require('path');
 const { PLANS } = require('@sift/common');
 
 module.exports = {
   serviceName: 'identity-service',
   port: parseInt(process.env.IDENTITY_PORT || process.env.PORT || '3001', 10),
-  dbPath: process.env.DB_PATH || '',
+  dbPath: process.env.DB_PATH || path.resolve(__dirname, '../../../data/cloudnest.db'),
   databaseUrl: process.env.DATABASE_URL || 'postgres://sift_identity:sift_identity@localhost:5432/sift_identity',
   redisUrl: process.env.REDIS_URL || 'redis://localhost:6379',
   jwtSecret: process.env.JWT_SECRET || 'change-me-to-a-random-string',

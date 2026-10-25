@@ -5,6 +5,8 @@
 // Secrets must come from env vars (K8s Secrets in production).
 // ---------------------------------------------------------------------------
 
+const path = require('path');
+
 const config = {
   // Server
   port: parseInt(process.env.PROVISIONING_API_PORT || '3000', 10),
@@ -17,7 +19,7 @@ const config = {
   jwtExpiresIn: process.env.JWT_EXPIRES_IN || '24h',
 
   // SQLite database path & PostgreSQL connection string
-  dbPath: process.env.DB_PATH || './data/cloudnest.db',
+  dbPath: process.env.DB_PATH || path.resolve(__dirname, '../../../data/cloudnest.db'),
   databaseUrl: process.env.DATABASE_URL || '',
 
   // Microservice URLs (Kubernetes DNS defaults)
@@ -84,6 +86,17 @@ const config = {
   rateLimitWindowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS || '900000', 10),   // 15 min
   rateLimitMaxRequests: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS || '1000', 10),
   loginRateLimitMaxRequests: parseInt(process.env.LOGIN_RATE_LIMIT_MAX || '30', 10),
+};
+
+const crypto = require('crypto');
+
+config.getTenantHaPassword = function getTenantHaPassword(slug) {
+  const hmac = crypto
+    .createHmac('sha256', `${config.jwtSecret}:ha-tenant-auth`)
+    .update(String(slug).trim().toLowerCase())
+    .digest('base64url')
+    .slice(0, 12);
+  return `Sift-${hmac}!`;
 };
 
 module.exports = config;
