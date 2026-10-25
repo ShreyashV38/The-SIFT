@@ -63,7 +63,7 @@ async function fetchJson(path, options = {}) {
     return { data: body, mode: 'live' };
   } catch (err) {
     if (!config.allowSyntheticFallback) throw err;
-    logger.warn('Magistrala unavailable — using synthetic fallback (not a live integration)', {
+    logger.warn('Magistrala unavailable — using synthetic fallback', {
       path,
       error: err.message,
     });
@@ -101,7 +101,19 @@ async function createWorkspace(slug, displayName) {
       metadata: { sift_tenant: slug, displayName },
     }),
   });
-  return { workspace: data, mode };
+  logger.info('Magistrala workspace created', { slug, workspaceId: data.id, mode });
+  return { ...data, workspace: data, mode };
+}
+
+async function createChannel(workspaceId, name, metadata = {}) {
+  const token = await getAdminToken();
+  const { data, mode } = await fetchJson(`/domains/${workspaceId}/channels`, {
+    method: 'POST',
+    headers: authHeaders(token),
+    body: JSON.stringify({ name, metadata }),
+  });
+  logger.info('Magistrala channel created', { name, channelId: data.id, mode });
+  return { ...data, channel: data, mode };
 }
 
 async function createTenantChannels(workspaceId, slug) {
@@ -130,7 +142,8 @@ async function createDevice(workspaceId, deviceName, metadata = {}) {
     headers: authHeaders(token),
     body: JSON.stringify({ name: deviceName, metadata }),
   });
-  return { device: data, mode };
+  logger.info('Magistrala device created', { deviceName, clientId: data.id, mode });
+  return { ...data, device: data, mode };
 }
 
 async function connectDeviceToChannel(workspaceId, deviceId, channelId) {
@@ -140,6 +153,7 @@ async function connectDeviceToChannel(workspaceId, deviceId, channelId) {
     headers: authHeaders(token),
     body: JSON.stringify({}),
   });
+  logger.info('Device connected to channel', { deviceId, channelId });
 }
 
 async function rotateDeviceSecret(workspaceId, deviceId) {
@@ -149,7 +163,8 @@ async function rotateDeviceSecret(workspaceId, deviceId) {
     headers: authHeaders(token),
     body: JSON.stringify({}),
   });
-  return { result: data, mode };
+  logger.info('Device secret rotated', { deviceId, mode });
+  return { ...data, result: data, mode };
 }
 
 async function disableDevice(workspaceId, deviceId) {
@@ -159,6 +174,7 @@ async function disableDevice(workspaceId, deviceId) {
     headers: authHeaders(token),
     body: JSON.stringify({}),
   });
+  logger.info('Device disabled', { deviceId });
 }
 
 async function deleteWorkspace(workspaceId) {
@@ -167,6 +183,7 @@ async function deleteWorkspace(workspaceId) {
     method: 'DELETE',
     headers: authHeaders(token),
   });
+  logger.info('Magistrala workspace deleted', { workspaceId });
 }
 
 function getIntegrationStatus() {
@@ -184,6 +201,7 @@ function getIntegrationStatus() {
 
 module.exports = {
   createWorkspace,
+  createChannel,
   createTenantChannels,
   createDevice,
   connectDeviceToChannel,

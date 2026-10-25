@@ -1,0 +1,18 @@
+{
+  "name": "the-sift",
+  "version": "1.0.0",
+  "private": true,
+  "description": "The-SIFT Multi-Tenant Cloud-Native IoT Smart-Home Automation Platform",
+  "workspaces": [
+    "packages/*",
+    "services/*"
+  ],
+  "scripts": {
+    "start": "node services/provisioning-api/src/index.js",
+    "start:identity": "node services/identity-service/src/index.js",
+    "start:iot": "node services/iot-broker-service/src/index.js",
+    "start:provisioning": "node services/provisioning-api/src/index.js",
+    "start:bridge": "node services/tb-bridge/src/index.js",
+    "test": "node tools/tests/test_suite.js"
+  }
+}

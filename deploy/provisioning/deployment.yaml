@@ -18,10 +18,9 @@ metadata:
   namespace: provisioning
   labels:
     app.kubernetes.io/name: provisioning-api
+    app.kubernetes.io/part-of: cloudnest
 spec:
-  replicas: 1
-  strategy:
-    type: Recreate
+  replicas: 2
   selector:
     matchLabels:
       app.kubernetes.io/name: provisioning-api
@@ -29,8 +28,10 @@ spec:
     metadata:
       labels:
         app.kubernetes.io/name: provisioning-api
+        app.kubernetes.io/part-of: cloudnest
     spec:
       serviceAccountName: provisioning-api
+      automountServiceAccountToken: true
       nodeSelector:
         sift.io/role: worker
       containers:
@@ -40,13 +41,31 @@ spec:
           ports:
             - name: http
               containerPort: 3000
+            - name: internal
+              containerPort: 8081
           env:
             - name: NODE_ENV
               value: "production"
             - name: PORT
               value: "3000"
+            - name: INTERNAL_PORT
+              value: "8081"
             - name: DB_PATH
               value: "/data/cloudnest.db"
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: provisioning-secrets
+                  key: database-url
+                  optional: true
+            - name: DB_POOL_MAX
+              value: "5"
+            - name: HA_HELM_CHART_PATH
+              value: "/app/charts/ha-tenant"
+            - name: IDENTITY_SERVICE_URL
+              value: "http://sift-identity-service:3001"
+            - name: IOT_BROKER_SERVICE_URL
+              value: "http://sift-iot-broker-service:3004"
             - name: PROVISIONING_API_KEY
               valueFrom:
                 secretKeyRef:
@@ -58,6 +77,12 @@ spec:
                 secretKeyRef:
                   name: provisioning-secrets
                   key: jwt-secret
+                  optional: true
+            - name: INTERNAL_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: provisioning-secrets
+                  key: internal-token
                   optional: true
             - name: MAGISTRALA_URL
               value: "http://magistrala-things.platform.svc.cluster.local:8182"
@@ -78,7 +103,7 @@ spec:
             periodSeconds: 10
           readinessProbe:
             httpGet:
-              path: /health
+              path: /ready
               port: 3000
             initialDelaySeconds: 10
             periodSeconds: 5
@@ -89,41 +114,3 @@ spec:
         - name: data
           persistentVolumeClaim:
             claimName: provisioning-data-pvc
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: provisioning-api
-  namespace: provisioning
-  labels:
-    app.kubernetes.io/name: provisioning-api
-spec:
-  type: ClusterIP
-  ports:
-    - name: http
-      port: 3000
-      targetPort: 3000
-  selector:
-    app.kubernetes.io/name: provisioning-api
----
-apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  name: provisioning-api-ingress
-  namespace: provisioning
-  labels:
-    app.kubernetes.io/name: provisioning-api
-  annotations:
-    traefik.ingress.kubernetes.io/router.entrypoints: web
-spec:
-  rules:
-    - host: api.localtest.me
-      http:
-        paths:
-          - path: /
-            pathType: Prefix
-            backend:
-              service:
-                name: provisioning-api
-                port:
-                  number: 3000

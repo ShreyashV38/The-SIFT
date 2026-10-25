@@ -1,0 +1,90 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: provisioning-api-ingress
+  namespace: provisioning
+  labels:
+    app.kubernetes.io/name: provisioning-api
+    app.kubernetes.io/part-of: cloudnest
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: web
+spec:
+  rules:
+    - host: api.localtest.me
+      http:
+        paths:
+          - path: /v1/auth
+            pathType: Prefix
+            backend:
+              service:
+                name: sift-identity-service
+                port:
+                  number: 3001
+          - path: /v1/accounts
+            pathType: Prefix
+            backend:
+              service:
+                name: sift-identity-service
+                port:
+                  number: 3001
+          - path: /v1/invitations
+            pathType: Prefix
+            backend:
+              service:
+                name: sift-identity-service
+                port:
+                  number: 3001
+          - path: /v1/me
+            pathType: Prefix
+            backend:
+              service:
+                name: sift-identity-service
+                port:
+                  number: 3001
+          - path: /api/accounts
+            pathType: Prefix
+            backend:
+              service:
+                name: sift-identity-service
+                port:
+                  number: 3001
+          - path: /api/members
+            pathType: Prefix
+            backend:
+              service:
+                name: sift-identity-service
+                port:
+                  number: 3001
+          - path: /api/devices
+            pathType: Prefix
+            backend:
+              service:
+                name: sift-iot-broker-service
+                port:
+                  number: 3004
+          - path: /api/tenants
+            pathType: Prefix
+            backend:
+              service:
+                name: sift-provisioning-api
+                port:
+                  number: 3000
+          # Note: Standard Kubernetes Prefix Ingress rules do not allow regex or :slug parameters.
+          # Sub-resource paths (/v1/tenants/<slug>/devices and /v1/tenants/<slug>/members) enter via
+          # the /v1/tenants prefix below and are routed by provisioning-api using
+          # IDENTITY_SERVICE_URL (http://sift-identity-service:3001) and
+          # IOT_BROKER_SERVICE_URL (http://sift-iot-broker-service:3004).
+          - path: /v1/tenants
+            pathType: Prefix
+            backend:
+              service:
+                name: sift-provisioning-api
+                port:
+                  number: 3000
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: sift-provisioning-api
+                port:
+                  number: 3000

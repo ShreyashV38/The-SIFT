@@ -1,0 +1,88 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: iot-broker-service
+  namespace: provisioning
+  labels:
+    app.kubernetes.io/name: iot-broker-service
+    app.kubernetes.io/part-of: cloudnest
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: iot-broker-service
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: iot-broker-service
+        app.kubernetes.io/part-of: cloudnest
+    spec:
+      automountServiceAccountToken: false
+      nodeSelector:
+        sift.io/role: worker
+      containers:
+        - name: iot-broker-service
+          image: sift/iot-broker-service:dev
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 3004
+          env:
+            - name: NODE_ENV
+              value: "production"
+            - name: PORT
+              value: "3004"
+            - name: DB_PATH
+              value: "/data/cloudnest.db"
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: provisioning-secrets
+                  key: database-url
+                  optional: true
+            - name: DB_POOL_MAX
+              value: "5"
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: provisioning-secrets
+                  key: jwt-secret
+                  optional: true
+            - name: INTERNAL_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: provisioning-secrets
+                  key: internal-token
+                  optional: true
+            - name: MAGISTRALA_URL
+              value: "http://magistrala-things.platform.svc.cluster.local:8182"
+            - name: MQTT_URL
+              value: "mqtt://magistrala-mqtt.platform.svc.cluster.local:1883"
+            - name: TB_URL
+              value: "http://thingsboard.observability.svc.cluster.local:8080"
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "256Mi"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 3004
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 3004
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          volumeMounts:
+            - name: data
+              mountPath: /data
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: provisioning-data-pvc

@@ -1,0 +1,94 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: identity-service
+  namespace: provisioning
+  labels:
+    app.kubernetes.io/name: identity-service
+    app.kubernetes.io/part-of: cloudnest
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: identity-service
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: identity-service
+        app.kubernetes.io/part-of: cloudnest
+    spec:
+      automountServiceAccountToken: false
+      nodeSelector:
+        sift.io/role: worker
+      containers:
+        - name: identity-service
+          image: sift/identity-service:dev
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 3001
+          env:
+            - name: NODE_ENV
+              value: "production"
+            - name: PORT
+              value: "3001"
+            - name: DB_PATH
+              value: "/data/cloudnest.db"
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: provisioning-secrets
+                  key: database-url
+                  optional: true
+            - name: DB_POOL_MAX
+              value: "5"
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: provisioning-secrets
+                  key: jwt-secret
+                  optional: true
+            - name: INTERNAL_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: provisioning-secrets
+                  key: internal-token
+                  optional: true
+            - name: GMAIL_USER
+              valueFrom:
+                secretKeyRef:
+                  name: provisioning-secrets
+                  key: gmail-user
+                  optional: true
+            - name: GMAIL_APP_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: provisioning-secrets
+                  key: gmail-app-password
+                  optional: true
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "256Mi"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 3001
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 3001
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          volumeMounts:
+            - name: data
+              mountPath: /data
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: provisioning-data-pvc

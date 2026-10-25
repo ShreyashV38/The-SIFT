@@ -17,6 +17,7 @@ spec:
       labels:
         app.kubernetes.io/name: tb-bridge
     spec:
+      automountServiceAccountToken: false
       nodeSelector:
         sift.io/role: worker
       containers:
@@ -33,8 +34,14 @@ spec:
               value: "3001"
             - name: PROVISIONING_API_URL
               value: "http://provisioning-api.provisioning.svc.cluster.local:3000"
+            - name: INTERNAL_API_URL
+              value: "http://provisioning-api.provisioning.svc.cluster.local:8081"
             - name: MAGISTRALA_MQTT_URL
               value: "mqtt://magistrala-mqtt.platform.svc.cluster.local:1883"
+            - name: MQTT_SHARE_GROUP
+              value: "sift-bridge"
+            - name: USE_SHARED_SUBSCRIPTIONS
+              value: "false"
             - name: TB_MQTT_URL
               value: "mqtt://thingsboard.observability.svc.cluster.local:1883"
             - name: TB_HTTP_URL

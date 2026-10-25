@@ -1,12 +1,95 @@
 // ---------------------------------------------------------------------------
-// SIFT Tenant Portal — UI Utilities (Phase 6C)
+// The-SIFT Cloud Portal — UI Utilities & Cloud Endpoint Resolvers
 // ---------------------------------------------------------------------------
 // - Toast notifications with automatic dismiss and aria-live announcements
 // - Copy helper with visual feedback
-// - In-browser Blob file downloads (sift-device.ino, sift-device.json)
-// - C string escaping for ESP32 Arduino sketches
-// - Relative time calculations
+// - Theme persistence (Carbon Dark default / Titanium Light)
+// - Dynamic Cloud Domain & MQTT Endpoint Resolution
+// - In-browser Blob file downloads (sift-device.ino, sift-device.json, sift-device-client.js)
 // ---------------------------------------------------------------------------
+
+const THEME_STORAGE_KEY = 'sift-theme';
+
+export function getCurrentTheme() {
+  try {
+    return localStorage.getItem(THEME_STORAGE_KEY) || 'dark';
+  } catch {
+    return 'dark';
+  }
+}
+
+export function applyTheme(theme) {
+  const normalized = theme === 'light' ? 'light' : 'dark';
+  document.documentElement.setAttribute('data-theme', normalized);
+  const metaTheme = document.querySelector('meta[name="theme-color"]');
+  if (metaTheme) {
+    metaTheme.setAttribute('content', normalized === 'light' ? '#F8FAFC' : '#08090C');
+  }
+  try {
+    localStorage.setItem(THEME_STORAGE_KEY, normalized);
+  } catch {
+    // Ignore storage quota errors
+  }
+  return normalized;
+}
+
+export function initTheme() {
+  return applyTheme(getCurrentTheme());
+}
+
+export function toggleTheme() {
+  const next = getCurrentTheme() === 'light' ? 'dark' : 'light';
+  return applyTheme(next);
+}
+
+// Dynamic Cloud Domain & Endpoint Resolution
+export function resolveCloudDomain(configuredDomain) {
+  const host = (typeof window !== 'undefined' && window.location && window.location.hostname)
+    ? window.location.hostname
+    : '';
+  if (configuredDomain && typeof configuredDomain === 'string' && configuredDomain.trim()) {
+    return configuredDomain.trim();
+  }
+  return host || 'sift-cloud.io';
+}
+
+export function resolveMqttHost(configuredHost) {
+  const host = (typeof window !== 'undefined' && window.location && window.location.hostname)
+    ? window.location.hostname
+    : 'mqtt.sift-cloud.io';
+  if (!configuredHost || typeof configuredHost !== 'string') {
+    return host;
+  }
+  const clean = configuredHost.trim();
+  if (!clean || clean === 'host.wokwi.internal') {
+    return host;
+  }
+  return clean;
+}
+
+export function resolveHaUrl(slug, tenantUrl, configuredDomain) {
+  if (tenantUrl && typeof tenantUrl === 'string' && tenantUrl.trim()) {
+    return tenantUrl.trim();
+  }
+  const domain = resolveCloudDomain(configuredDomain);
+  return `https://${slug}.${domain}`;
+}
+
+export function formatTierBadge(plan) {
+  if (!plan) return 'FREE';
+  const p = String(plan).toLowerCase();
+  if (p === 'family' || p === 'home') return 'HOME';
+  if (p === 'pro') return 'PRO';
+  return 'FREE';
+}
+
+export function formatTierName(plan) {
+  if (!plan) return 'Free (Single)';
+  const p = String(plan).toLowerCase();
+  if (p === 'family' || p === 'home') return 'Home (Family)';
+  if (p === 'pro') return 'Pro';
+  return 'Free (Single)';
+}
 
 // Announce message to assistive technology
 export function announce(message) {
@@ -29,10 +112,10 @@ export function toast(message, type = 'info', duration = 4000) {
   el.className = `toast toast-${type}`;
 
   const iconSvg = type === 'success'
-    ? `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex-shrink:0;"><polyline points="20 6 9 17 4 12"/></svg>`
+    ? `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--led-emerald)" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex-shrink:0;"><polyline points="20 6 9 17 4 12"/></svg>`
     : type === 'error'
-    ? `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex-shrink:0;"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>`
-    : `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex-shrink:0;"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>`;
+    ? `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--led-rose)" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex-shrink:0;"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>`
+    : `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex-shrink:0;"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>`;
 
   const span = document.createElement('span');
   span.textContent = message;
@@ -44,9 +127,9 @@ export function toast(message, type = 'info', duration = 4000) {
 
   setTimeout(() => {
     el.style.opacity = '0';
-    el.style.transform = 'translateY(10px)';
-    el.style.transition = 'all 0.3s ease';
-    setTimeout(() => el.remove(), 300);
+    el.style.transform = 'translateY(8px)';
+    el.style.transition = 'all 0.25s ease';
+    setTimeout(() => el.remove(), 250);
   }, duration);
 }
 
@@ -56,7 +139,6 @@ export async function copyToClipboard(text, buttonEl, originalLabel = 'Copy') {
     if (navigator.clipboard && navigator.clipboard.writeText) {
       await navigator.clipboard.writeText(text);
     } else {
-      // Fallback for older environments
       const textarea = document.createElement('textarea');
       textarea.value = text;
       textarea.style.position = 'fixed';
@@ -68,20 +150,21 @@ export async function copyToClipboard(text, buttonEl, originalLabel = 'Copy') {
     }
 
     if (buttonEl) {
-      buttonEl.textContent = 'Copied!';
+      const prev = buttonEl.textContent;
+      buttonEl.textContent = 'Copied';
       buttonEl.classList.add('btn-primary');
       setTimeout(() => {
-        buttonEl.textContent = originalLabel;
+        buttonEl.textContent = originalLabel || prev;
         buttonEl.classList.remove('btn-primary');
-      }, 2000);
+      }, 1800);
     }
     toast('Copied to clipboard', 'success', 2000);
-  } catch (err) {
+  } catch {
     toast('Failed to copy to clipboard', 'error');
   }
 }
 
-// Download file generated purely in the browser using Blob (P4 / Section 8)
+// Download file generated purely in the browser using Blob
 export function downloadBlob(filename, textContent, mimeType = 'text/plain') {
   const blob = new Blob([textContent], { type: mimeType });
   const url = URL.createObjectURL(blob);
@@ -94,7 +177,7 @@ export function downloadBlob(filename, textContent, mimeType = 'text/plain') {
   URL.revokeObjectURL(url);
 }
 
-// Escape strings for C/C++ string literals (Section 9.1)
+// Escape strings for C/C++ string literals
 export function escapeCString(str) {
   if (typeof str !== 'string') return '';
   return str
@@ -127,7 +210,7 @@ export function renderSpinner() {
   return `<span class="spinner" aria-hidden="true"></span>`;
 }
 
-// Generate ESP32 Arduino Sketch template (Section 9.1)
+// Generate ESP32 Arduino / PlatformIO Firmware Sketch
 export function generateSketch({
   deviceName,
   deviceKind,
@@ -143,9 +226,9 @@ export function generateSketch({
   deviceId,
   publishIntervalMs = 10000,
 }) {
-  const ssid = escapeCString(wifiSsid || 'YOUR_WIFI_NAME');
+  const ssid = escapeCString(wifiSsid || 'YOUR_WIFI_SSID');
   const pass = escapeCString(wifiPassword || 'YOUR_WIFI_PASSWORD');
-  const host = escapeCString(mqttHost || '127.0.0.1');
+  const host = escapeCString(resolveMqttHost(mqttHost));
   const port = parseInt(mqttPort || 1883, 10);
   const clientId = escapeCString(mqttClientId || '');
   const username = escapeCString(mqttUsername || clientId);
@@ -155,15 +238,15 @@ export function generateSketch({
   const devId = escapeCString(deviceId || '');
   const kind = escapeCString(deviceKind || 'sensor');
 
-  return `// SIFT device sketch for: ${deviceName} (${deviceKind})
+  return `// The-SIFT Cloud Hardware Firmware for: ${deviceName} (${deviceKind})
 #include <WiFi.h>
 #include <PubSubClient.h>
 
-// ---- 1. Your WiFi (2.4 GHz only) ----
+// ---- 1. WiFi Network Configuration (2.4 GHz) ----
 const char* WIFI_SSID     = "${ssid}";
 const char* WIFI_PASSWORD = "${pass}";
 
-// ---- 2. SIFT connection (generated, keep private) ----
+// ---- 2. The-SIFT Cloud Broker Credentials ----
 const char*    MQTT_HOST       = "${host}";
 const uint16_t MQTT_PORT       = ${port};
 const char*    MQTT_CLIENT_ID  = "${clientId}";
@@ -172,7 +255,7 @@ const char*    MQTT_PASSWORD   = "${password}";
 const char*    TOPIC_TELEMETRY = "${tTopic}";
 const char*    TOPIC_COMMAND   = "${cTopic}";
 const char*    DEVICE_ID       = "${devId}";
-const char*    DEVICE_KIND     = "${kind}";   // "sensor" or "switch"
+const char*    DEVICE_KIND     = "${kind}";
 const unsigned long PUBLISH_EVERY_MS = ${publishIntervalMs};
 
 #ifndef LED_BUILTIN
@@ -188,7 +271,7 @@ unsigned long lastPublish = 0;
 void publishState();
 
 void connectWifi() {
-  Serial.printf("WiFi connecting to %s\\n", WIFI_SSID);
+  Serial.printf("Connecting to WiFi %s\\n", WIFI_SSID);
   WiFi.mode(WIFI_STA);
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
   unsigned long start = millis();
@@ -196,7 +279,7 @@ void connectWifi() {
     delay(500);
     Serial.print(".");
     if (millis() - start > 20000) {
-      Serial.println("\\nWiFi failed, restarting");
+      Serial.println("\\nWiFi timeout, restarting MCU");
       ESP.restart();
     }
   }
@@ -208,7 +291,7 @@ void onMessage(char* topic, byte* payload, unsigned int length) {
   unsigned int n = length < sizeof(msg) - 1 ? length : sizeof(msg) - 1;
   memcpy(msg, payload, n);
   msg[n] = 0;
-  Serial.printf("Command received: %s\\n", msg);
+  Serial.printf("Cloud command received: %s\\n", msg);
   if (strcmp(DEVICE_KIND, "switch") != 0) return;
   if (strcmp(msg, "ON") == 0) switchOn = true;
   else if (strcmp(msg, "OFF") == 0) switchOn = false;
@@ -222,7 +305,7 @@ void publishState() {
   if (strcmp(DEVICE_KIND, "switch") == 0) {
     snprintf(body, sizeof(body), "{\\"id\\":\\"%s\\",\\"state\\":\\"%s\\"}", DEVICE_ID, switchOn ? "ON" : "OFF");
   } else {
-    temperature += ((int)random(-5, 6)) / 10.0f;   // simulated reading: replace with your sensor
+    temperature += ((int)random(-5, 6)) / 10.0f;
     if (temperature < 15) temperature = 15;
     if (temperature > 35) temperature = 35;
     snprintf(body, sizeof(body), "{\\"id\\":\\"%s\\",\\"temperature\\":%.1f}", DEVICE_ID, temperature);
@@ -234,7 +317,7 @@ void publishState() {
 void connectMqtt() {
   int delayMs = 1000;
   while (!mqtt.connected()) {
-    Serial.println("MQTT connecting...");
+    Serial.println("Connecting to The-SIFT Cloud MQTT...");
     if (mqtt.connect(MQTT_CLIENT_ID, MQTT_USERNAME, MQTT_PASSWORD)) {
       Serial.println("MQTT connected");
       mqtt.subscribe(TOPIC_COMMAND);
@@ -267,5 +350,157 @@ void loop() {
     publishState();
   }
 }
+`;
+}
+
+// Generate Cloud Verification Client Script (sift-device-client.js) in-browser
+export function generateOneDeviceScript() {
+  const defaultBrokerHost = resolveMqttHost('');
+  return `#!/usr/bin/env node
+// ---------------------------------------------------------------------------
+// The-SIFT Cloud Verification Client — sift-device-client.js
+// ---------------------------------------------------------------------------
+// Production cloud connectivity verification utility for provisioned Thing IDs.
+// Usage:
+//   npm install mqtt
+//   node sift-device-client.js --config ./sift-device.json
+// ---------------------------------------------------------------------------
+
+const fs = require('fs');
+const path = require('path');
+const mqtt = require('mqtt');
+
+const args = process.argv.slice(2);
+let configPath = 'sift-device.json';
+for (let i = 0; i < args.length; i++) {
+  if (args[i] === '--config' && args[i + 1]) {
+    configPath = args[i + 1];
+    i++;
+  }
+}
+
+const resolvedPath = path.resolve(process.cwd(), configPath);
+if (!fs.existsSync(resolvedPath)) {
+  console.error(\`Error: Configuration file not found at \${resolvedPath}\`);
+  console.error('Download sift-device.json from The-SIFT Cloud Portal.');
+  console.error('Usage: node sift-device-client.js --config ./sift-device.json');
+  process.exit(1);
+}
+
+let cfg;
+try {
+  cfg = JSON.parse(fs.readFileSync(resolvedPath, 'utf8'));
+} catch (err) {
+  console.error(\`Error parsing JSON in \${resolvedPath}:\`, err.message);
+  process.exit(1);
+}
+
+const device = cfg.device || {};
+const mqttCfg = cfg.mqtt || {};
+const deviceId = device.id || 'dev_unknown';
+const deviceName = device.name || 'Cloud Hardware Endpoint';
+const deviceKind = device.kind || 'sensor';
+const intervalSec = cfg.publishIntervalSeconds || 10;
+
+console.log('========================================================');
+console.log(\` The-SIFT Cloud Verification Client: \${deviceName} (\${deviceKind})\`);
+console.log(\` Cloud Broker: \${mqttCfg.host}:\${mqttCfg.port}\`);
+console.log(\` Thing ID:     \${deviceId}\`);
+console.log('========================================================\\n');
+
+let currentTemp = 24.0;
+let switchState = 'OFF';
+
+const brokerHost = mqttCfg.host || '${defaultBrokerHost}';
+const brokerUrl = \`\${mqttCfg.tls ? 'mqtts' : 'mqtt'}://\${brokerHost}:\${mqttCfg.port || 1883}\`;
+console.log(\`Connecting to Cloud MQTT endpoint \${brokerUrl}...\`);
+
+const client = mqtt.connect(brokerUrl, {
+  clientId: mqttCfg.clientId,
+  username: mqttCfg.username || mqttCfg.clientId,
+  password: mqttCfg.password,
+  reconnectPeriod: 2000,
+});
+
+client.on('connect', () => {
+  console.log('Cloud MQTT session established');
+
+  if (mqttCfg.commandTopic) {
+    client.subscribe(mqttCfg.commandTopic, { qos: 1 }, (err) => {
+      if (err) {
+        console.error('Failed to subscribe to command channel:', err.message);
+      } else {
+        console.log(\`Subscribed to command channel: \${mqttCfg.commandTopic}\`);
+      }
+    });
+  }
+
+  publishState();
+});
+
+client.on('message', (topic, payload) => {
+  const msg = payload.toString().trim();
+  console.log(\`Cloud command received: \${msg}\`);
+
+  if (deviceKind === 'switch') {
+    if (msg === 'ON' || msg === '{"state":"ON"}' || msg === '{"switch":true}') {
+      switchState = 'ON';
+    } else if (msg === 'OFF' || msg === '{"state":"OFF"}' || msg === '{"switch":false}') {
+      switchState = 'OFF';
+    }
+    console.log(\`Actuator relay state updated: \${switchState}\`);
+    publishState();
+  }
+});
+
+client.on('error', (err) => {
+  console.error(\`MQTT error (\${client.reconnecting ? 'reconnecting' : 'fault'}): \${err.message}\`);
+});
+
+client.on('offline', () => {
+  console.log('MQTT link offline, reconnecting...');
+});
+
+function publishState() {
+  if (!client.connected) return;
+
+  let payloadObj;
+  if (deviceKind === 'switch') {
+    payloadObj = {
+      id: deviceId,
+      state: switchState,
+    };
+  } else {
+    const delta = (Math.floor(Math.random() * 11) - 5) / 10.0;
+    currentTemp = parseFloat((currentTemp + delta).toFixed(1));
+    if (currentTemp < 15.0) currentTemp = 15.0;
+    if (currentTemp > 35.0) currentTemp = 35.0;
+
+    payloadObj = {
+      id: deviceId,
+      temperature: currentTemp,
+      humidity: Math.floor(45 + Math.random() * 15),
+    };
+  }
+
+  const payloadStr = JSON.stringify(payloadObj);
+  client.publish(mqttCfg.telemetryTopic, payloadStr, { qos: 1 }, (err) => {
+    if (err) {
+      console.log(\`Published (FAILED): \${payloadStr}\`);
+    } else {
+      console.log(\`Published (ok): \${payloadStr}\`);
+    }
+  });
+}
+
+setInterval(publishState, intervalSec * 1000);
+
+process.on('SIGINT', () => {
+  console.log('\\nClosing Cloud Verification session...');
+  client.end(false, () => {
+    console.log('Session closed.');
+    process.exit(0);
+  });
+});
 `;
 }

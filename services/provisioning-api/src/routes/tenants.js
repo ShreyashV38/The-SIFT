@@ -1,61 +1,53 @@
 // ---------------------------------------------------------------------------
-// CloudNest — Tenants Routes (Phase 6C Updated)
+// CloudNest — Tenants Routes (tenant-provisioning-service)
 // ---------------------------------------------------------------------------
 // FR-01: tenant creation (session authenticated or API key)
-// FR-02: auto-creates Magistrala workspace + channels
-// FR-03: auto-deploys isolated HA instance
+// FR-02: auto-creates Magistrala workspace + channels via iot-broker-service
+// FR-03: auto-deploys isolated HA instance via kubernetes.js
 // FR-12: plan enforcement (seat/device limits)
-// Phase 6C: HA credentials access, live provisioning steps, config endpoints
+// Concurrency: Atomic INSERT ... ON CONFLICT (slug) DO NOTHING RETURNING * lock
 // ---------------------------------------------------------------------------
 
 const { Router } = require('express');
 const { getDb } = require('../db');
-const { requireAuth, parseCookies } = require('../middleware/auth');
+const { requireAuth } = require('../middleware/auth');
 const { requireRole } = require('../middleware/rbac');
-const magistrala = require('../services/magistrala');
 const kubernetes = require('../services/kubernetes');
-const emailService = require('../services/email');
+const { magistrala } = require('sift-iot-broker-service');
+const { emailService } = require('sift-identity-service');
 const config = require('../config');
 const logger = require('../logger');
 
 const router = Router();
 
-// Validate slug format: 3-30 chars, lowercase alphanumeric and hyphen, cannot start/end with hyphen
 function isValidSlug(slug) {
   if (typeof slug !== 'string') return false;
   return /^[a-z0-9][a-z0-9-]{1,29}[a-z0-9]$/.test(slug);
 }
 
 // POST /v1/tenants
-// Creates a new tenant household.
-// Authenticated via session cookie OR Bearer token OR X-API-Key.
-// Body: { slug, displayName, plan? }
 router.post('/', (req, res, next) => {
-  // Check API key first if provided
   const apiKey = req.headers['x-api-key'];
   if (apiKey && apiKey === config.apiKey) {
-    // If API key is valid, optionally attach user if token present, or proceed
     const authHeader = req.headers.authorization;
     if (authHeader && authHeader.startsWith('Bearer ')) {
       return requireAuth(req, res, next);
     }
-    // If API key but no user, reject with 401 if owner account cannot be attributed
     return res.status(401).json({
       error: { code: 'UNAUTHENTICATED', message: 'User authentication required to assign household ownership' },
     });
   }
 
-  // Otherwise require regular user authentication (cookie or Bearer)
   requireAuth(req, res, next);
 }, async (req, res) => {
-  const startTime = Date.now();
   const steps = [];
+  const db = getDb();
+  let tenantId = null;
 
   try {
     const { slug, displayName, plan = 'single' } = req.body || {};
     const accountId = req.user.accountId;
 
-    // Validate input
     if (!slug || !displayName) {
       return res.status(400).json({
         error: { code: 'VALIDATION', message: 'slug and displayName are required' },
@@ -69,7 +61,6 @@ router.post('/', (req, res, next) => {
       });
     }
 
-    // Reserved slugs check (Phase 6C section 4.3)
     if (config.reservedSlugs && config.reservedSlugs.includes(cleanSlug)) {
       return res.status(400).json({
         error: { code: 'RESERVED_SLUG', message: `The slug "${cleanSlug}" is reserved for system services` },
@@ -82,17 +73,25 @@ router.post('/', (req, res, next) => {
       });
     }
 
-    const db = getDb();
+    // --- Step 1: Atomic provisioning lock (Task 4) ---
+    // Claim the tenant slug in the database before invoking Magistrala or Kubernetes APIs
+    // so concurrent requests across 2-5 replicas cannot double-provision.
+    const namespace = `tenant-${cleanSlug}`;
+    const claimedTenant = db.prepare(`
+      INSERT INTO tenants (slug, display_name, plan, status, ha_namespace)
+      VALUES (?, ?, ?, 'active', ?)
+      ON CONFLICT (slug) DO NOTHING
+      RETURNING *
+    `).get(cleanSlug, displayName.trim(), plan, namespace);
 
-    // Check slug uniqueness
-    const existing = db.prepare('SELECT id FROM tenants WHERE slug = ?').get(cleanSlug);
-    if (existing) {
+    if (!claimedTenant) {
       return res.status(409).json({
         error: { code: 'SLUG_TAKEN', message: 'A household with this slug already exists' },
       });
     }
+    tenantId = claimedTenant.id;
 
-    // --- Step 1: Create Magistrala workspace + channels (FR-02) ---
+    // --- Step 2: Create Magistrala workspace + channels (FR-02) ---
     const step1Start = Date.now();
     let mgWorkspace, mgChannels;
     try {
@@ -104,6 +103,7 @@ router.post('/', (req, res, next) => {
         durationMs: Date.now() - step1Start,
       });
     } catch (err) {
+      db.prepare('DELETE FROM tenants WHERE id = ?').run(tenantId);
       logger.error('Magistrala provisioning failed', { slug: cleanSlug, error: err.message });
       steps.push({
         name: 'IoT Workspace & Message Channels',
@@ -116,20 +116,18 @@ router.post('/', (req, res, next) => {
       });
     }
 
-    // --- Step 2: Insert tenant record & owner membership ---
-    const namespace = `tenant-${cleanSlug}`;
-    const result = db.prepare(`
-      INSERT INTO tenants (slug, display_name, plan, status, mg_workspace_id, mg_chan_telemetry, mg_chan_commands, ha_namespace)
-      VALUES (?, ?, ?, 'active', ?, ?, ?, ?)
-    `).run(cleanSlug, displayName.trim(), plan, mgWorkspace.id, mgChannels.telemetry.id, mgChannels.commands.id, namespace);
-
-    const tenantId = result.lastInsertRowid;
+    // --- Step 3: Update tenant record & create owner membership ---
+    db.prepare(`
+      UPDATE tenants
+      SET mg_workspace_id = ?, mg_chan_telemetry = ?, mg_chan_commands = ?
+      WHERE id = ?
+    `).run(mgWorkspace.id, mgChannels.telemetry.id, mgChannels.commands.id, tenantId);
 
     db.prepare(
-      'INSERT INTO memberships (tenant_id, account_id, role) VALUES (?, ?, ?)'
+      'INSERT INTO memberships (tenant_id, account_id, role) VALUES (?, ?, ?) ON CONFLICT (tenant_id, account_id) DO NOTHING'
     ).run(tenantId, accountId, 'owner');
 
-    // --- Step 3: Deploy Home Assistant instance (FR-03) ---
+    // --- Step 4: Deploy Home Assistant instance (FR-03) ---
     const step2Start = Date.now();
     let deployment;
     try {
@@ -166,7 +164,6 @@ router.post('/', (req, res, next) => {
       password: config.haPassword,
     };
 
-    // Send household created confirmation email (non-blocking)
     const ownerAccount = db.prepare('SELECT email, display_name FROM accounts WHERE id = ?').get(accountId);
     if (ownerAccount) {
       emailService.sendHouseholdCreated(ownerAccount.email, ownerAccount.display_name, displayName.trim(), plan).catch(() => {});
@@ -181,7 +178,7 @@ router.post('/', (req, res, next) => {
         status: 'ready',
         namespace,
         url: haUrl,
-        createdAt: new Date().toISOString(),
+        createdAt: claimedTenant.created_at || new Date().toISOString(),
       },
       haCredentials,
       urls: {
@@ -195,17 +192,19 @@ router.post('/', (req, res, next) => {
       steps,
     });
   } catch (err) {
+    if (tenantId) {
+      try { db.prepare('DELETE FROM tenants WHERE id = ? AND mg_workspace_id IS NULL').run(tenantId); } catch (_) {}
+    }
     logger.error('Tenant creation failed', { error: err.message });
     res.status(500).json({ error: { code: 'INTERNAL_ERROR', message: 'Internal server error' } });
   }
 });
 
 // GET /v1/tenants/:slug
-// Returns tenant details, provisioning steps, URLs, and limits
 router.get('/:slug', requireAuth, requireRole('member'), (req, res) => {
   const db = getDb();
   const tenant = db.prepare(`
-    SELECT id, slug, display_name, plan, status, ha_namespace, created_at
+    SELECT id, slug, display_name, plan, status, ha_namespace, mg_chan_telemetry, mg_chan_commands, created_at
     FROM tenants WHERE id = ?
   `).get(req.tenant.id);
 
@@ -235,6 +234,8 @@ router.get('/:slug', requireAuth, requireRole('member'), (req, res) => {
       plan: tenant.plan,
       status: tenant.status === 'active' ? 'ready' : tenant.status,
       namespace: tenant.ha_namespace,
+      mg_chan_telemetry: tenant.mg_chan_telemetry,
+      mg_chan_commands: tenant.mg_chan_commands,
       url: haUrl,
       createdAt: tenant.created_at,
     },
@@ -257,8 +258,6 @@ router.get('/:slug', requireAuth, requireRole('member'), (req, res) => {
 });
 
 // GET /v1/tenants/:slug/ha-access
-// Phase 6C: Returns Home Assistant URL, shared username and password (active member only)
-// Cache-Control: no-store header to prevent caching credentials
 router.get('/:slug/ha-access', requireAuth, requireRole('member'), (req, res) => {
   res.setHeader('Cache-Control', 'no-store');
 
@@ -273,7 +272,6 @@ router.get('/:slug/ha-access', requireAuth, requireRole('member'), (req, res) =>
   });
 });
 
-// Handler for plan update (shared by PUT and PATCH)
 function handlePlanUpdate(req, res) {
   const { plan } = req.body || {};
 
@@ -286,7 +284,6 @@ function handlePlanUpdate(req, res) {
   const db = getDb();
   const newLimits = config.plans[plan];
 
-  // Check current usage against new limits
   const memberCount = db.prepare(
     "SELECT COUNT(*) as count FROM memberships WHERE tenant_id = ? AND status = 'active'"
   ).get(req.tenant.id).count;
@@ -322,7 +319,6 @@ function handlePlanUpdate(req, res) {
   res.json({ message: 'Plan updated', plan });
 }
 
-// PUT & PATCH /v1/tenants/:slug/plan
 router.put('/:slug/plan', requireAuth, requireRole('owner'), handlePlanUpdate);
 router.patch('/:slug/plan', requireAuth, requireRole('owner'), handlePlanUpdate);
 
@@ -332,17 +328,14 @@ router.delete('/:slug', requireAuth, requireRole('owner'), async (req, res) => {
     const db = getDb();
     const tenant = db.prepare('SELECT * FROM tenants WHERE id = ?').get(req.tenant.id);
 
-    // Mark as deleting
     db.prepare("UPDATE tenants SET status = 'deleting' WHERE id = ?").run(req.tenant.id);
 
-    // Remove K8s resources
     try {
       kubernetes.deleteTenant(tenant.slug);
     } catch (err) {
       logger.warn('K8s cleanup failed', { slug: tenant.slug, error: err.message });
     }
 
-    // Remove Magistrala workspace
     try {
       if (tenant.mg_workspace_id) {
         await magistrala.deleteWorkspace(tenant.mg_workspace_id);
@@ -351,7 +344,6 @@ router.delete('/:slug', requireAuth, requireRole('owner'), async (req, res) => {
       logger.warn('Magistrala cleanup failed', { slug: tenant.slug, error: err.message });
     }
 
-    // Soft-delete in DB
     db.prepare("UPDATE tenants SET status = 'deleted', deleted_at = datetime('now') WHERE id = ?").run(req.tenant.id);
     db.prepare("UPDATE memberships SET status = 'removed' WHERE tenant_id = ?").run(req.tenant.id);
     db.prepare("UPDATE devices SET status = 'revoked' WHERE tenant_id = ?").run(req.tenant.id);

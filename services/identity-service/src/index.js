@@ -1,9 +1,18 @@
+// ---------------------------------------------------------------------------
+// The-SIFT — Identity & Household Members Microservice (services/identity-service)
+// ---------------------------------------------------------------------------
+// Handles registration, login (2FA OTP + JWT + session cookies), email alerts,
+// and household membership RBAC (/v1/auth, /v1/accounts, /v1/tenants/:slug/members).
+// ---------------------------------------------------------------------------
+
 const express = require('express');
 const rateLimit = require('express-rate-limit');
 const { createServiceLogger, createEventBus } = require('@sift/common');
-const { initDb, getPool } = require('./db');
+const { initDb, getDb } = require('./db');
 const config = require('./config');
-const { router: accountsRouter, auth } = require('./routes/accounts');
+const accountsRouter = require('./routes/accounts');
+const membersRouter = require('./routes/members');
+const emailService = require('./services/email');
 
 const logger = createServiceLogger(config.serviceName);
 const app = express();
@@ -28,19 +37,25 @@ const authLimiter = rateLimit({
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', service: config.serviceName, timestamp: new Date().toISOString() });
 });
+
 app.get('/ready', async (req, res) => {
   try {
-    await getPool().query('SELECT 1');
+    getDb().prepare('SELECT 1').get();
     res.json({ status: 'ready', service: config.serviceName });
   } catch (err) {
     res.status(503).json({ status: 'not_ready', error: err.message });
   }
 });
 
+// Auth & Account routes (/v1/* and /api/* aliases)
 app.use('/v1/auth/login', authLimiter);
 app.use('/v1/accounts/login', authLimiter);
 app.use('/v1/auth', accountsRouter);
 app.use('/v1/accounts', accountsRouter);
+app.use('/api/v1/auth', accountsRouter);
+app.use('/api/v1/accounts', accountsRouter);
+app.use('/api/accounts', accountsRouter);
+
 app.get('/v1/me', (req, res, next) => {
   req.url = '/me';
   accountsRouter(req, res, next);
@@ -54,7 +69,13 @@ app.post('/v1/auth/resend-otp', (req, res, next) => {
   accountsRouter(req, res, next);
 });
 
-// Internal routes mounted on same router paths under /internal via accounts router
+// Household Member routes
+app.use('/v1/tenants', membersRouter);
+app.use('/api/v1/tenants', membersRouter);
+app.use('/api/v1/members', membersRouter);
+app.use('/api/members', membersRouter);
+
+// Internal routes
 app.use(accountsRouter);
 
 app.use((req, res) => {
@@ -63,29 +84,36 @@ app.use((req, res) => {
 
 async function main() {
   await initDb();
-  const pool = getPool();
-  // Ensure gen_random_uuid available
-  await pool.query('CREATE EXTENSION IF NOT EXISTS pgcrypto');
-
-  const events = createEventBus({
-    redisUrl: config.redisUrl,
-    serviceName: config.serviceName,
-    logger,
-    pool,
-  });
-  await events.connect();
-  events.startPublisher();
+  if (process.env.USE_POSTGRES === 'true' && process.env.REDIS_URL) {
+    const { getPool } = require('./db');
+    const pool = getPool();
+    await pool.query('CREATE EXTENSION IF NOT EXISTS pgcrypto');
+    const events = createEventBus({
+      redisUrl: config.redisUrl,
+      serviceName: config.serviceName,
+      logger,
+      pool,
+    });
+    await events.connect();
+    events.startPublisher();
+  }
 
   app.listen(config.port, () => {
     logger.info(`${config.serviceName} listening`, { port: config.port, skipOtp: config.skipOtp });
   });
 }
 
-if (process.env.NODE_ENV !== 'test') {
+if (require.main === module && process.env.NODE_ENV !== 'test') {
   main().catch((err) => {
-    logger.error('Failed to start', { error: err.message });
+    logger.error('Failed to start identity-service', { error: err.message });
     process.exit(1);
   });
 }
 
-module.exports = { app };
+module.exports = {
+  app,
+  accountsRouter,
+  membersRouter,
+  emailService,
+  auth: accountsRouter.auth,
+};

@@ -22,17 +22,15 @@ Write-Host ""
 # ---- Step 0: Prerequisites ----
 Write-Host "[1/5] Checking prerequisites..." -ForegroundColor Yellow
 
-# Auto-detect Node.js from standard install locations if not in PATH
-if (-not (Get-Command node -ErrorAction SilentlyContinue)) {
-    if (Test-Path "$env:LOCALAPPDATA\nvm\v22.18.0\node.exe") {
-        $env:PATH = "$env:LOCALAPPDATA\nvm\v22.18.0;$env:PATH"
-    } else {
-        $nvmNode = Get-ChildItem -Path "$env:LOCALAPPDATA\nvm" -Filter "node.exe" -Recurse -Depth 2 -ErrorAction SilentlyContinue | Select-Object -First 1
-        if ($nvmNode) {
-            $env:PATH = "$($nvmNode.DirectoryName);$env:PATH"
-        } elseif (Test-Path "C:\Program Files\nodejs\node.exe") {
-            $env:PATH = "C:\Program Files\nodejs;$env:PATH"
-        }
+# Auto-detect Node.js from standard install locations (prefer LTS v22.18.0 for native module compatibility)
+if (Test-Path "$env:LOCALAPPDATA\nvm\v22.18.0\node.exe") {
+    $env:PATH = "$env:LOCALAPPDATA\nvm\v22.18.0;$env:PATH"
+} elseif (-not (Get-Command node -ErrorAction SilentlyContinue)) {
+    $nvmNode = Get-ChildItem -Path "$env:LOCALAPPDATA\nvm" -Filter "node.exe" -Recurse -Depth 2 -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($nvmNode) {
+        $env:PATH = "$($nvmNode.DirectoryName);$env:PATH"
+    } elseif (Test-Path "C:\Program Files\nodejs\node.exe") {
+        $env:PATH = "C:\Program Files\nodejs;$env:PATH"
     }
 }
 
@@ -91,7 +89,7 @@ if ($hasKubectl) {
         }
 
         # Apply deploy manifests
-        foreach ($dir in @("magistrala", "thingsboard", "provisioning")) {
+        foreach ($dir in @("magistrala", "thingsboard", "identity-service", "iot-broker-service", "provisioning")) {
             $deployDir = ".\deploy\$dir"
             if (Test-Path $deployDir) {
                 Get-ChildItem "$deployDir\*.yaml" | ForEach-Object {

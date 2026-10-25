@@ -22,7 +22,17 @@ function parseCookies(req) {
   return cookies;
 }
 
-function createAuth({ jwtSecret, jwtExpiresIn = '24h', cookieSecure = false, internalToken }) {
+function createAuth({ jwtSecret, jwtExpiresIn = '24h', cookieSecure = false, internalToken, apiKey }) {
+  function requireApiKey(req, res, next) {
+    const key = req.headers['x-api-key'];
+    if (!key || !safeCompare(key, apiKey)) {
+      return res.status(401).json({
+        error: { code: 'UNAUTHENTICATED', message: 'Invalid or missing API key' },
+      });
+    }
+    next();
+  }
+
   function generateToken(account) {
     return jwt.sign(
       { sub: account.id, email: account.email },
@@ -102,6 +112,7 @@ function createAuth({ jwtSecret, jwtExpiresIn = '24h', cookieSecure = false, int
   }
 
   return {
+    requireApiKey,
     generateToken,
     setSessionCookie,
     clearSessionCookie,

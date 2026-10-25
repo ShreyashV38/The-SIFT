@@ -16,8 +16,13 @@ const config = {
   jwtSecret: process.env.JWT_SECRET || 'change-me-to-a-random-string',
   jwtExpiresIn: process.env.JWT_EXPIRES_IN || '24h',
 
-  // SQLite database path
+  // SQLite database path & PostgreSQL connection string
   dbPath: process.env.DB_PATH || './data/cloudnest.db',
+  databaseUrl: process.env.DATABASE_URL || '',
+
+  // Microservice URLs (Kubernetes DNS defaults)
+  identityServiceUrl: process.env.IDENTITY_SERVICE_URL || 'http://sift-identity-service:3001',
+  iotBrokerServiceUrl: process.env.IOT_BROKER_SERVICE_URL || 'http://sift-iot-broker-service:3004',
 
   // Magistrala
   magistralaUrl: process.env.MAGISTRALA_URL || 'http://magistrala-things.platform.svc.cluster.local',

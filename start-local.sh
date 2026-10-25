@@ -77,7 +77,7 @@ if $HAS_KUBECTL; then
             done
         fi
 
-        for dir in magistrala thingsboard provisioning; do
+        for dir in magistrala thingsboard identity-service iot-broker-service provisioning; do
             if [ -d "./deploy/$dir" ]; then
                 for f in ./deploy/$dir/*.yaml; do
                     [ -f "$f" ] && echo "  Applying deploy/$dir/$(basename $f)..." && kubectl apply -f "$f" 2>/dev/null || true

@@ -1,5 +1,5 @@
 // ---------------------------------------------------------------------------
-// CloudNest — Devices Routes (Phase 6C Updated)
+// The-SIFT — Devices Routes (iot-broker-service)
 // ---------------------------------------------------------------------------
 // FR-05: device registration, secret rotation, revocation
 // FR-12: device limits enforced per plan
@@ -7,23 +7,23 @@
 // Phase 6C: status computation (pending/online/offline/revoked),
 //           GET /devices/:id/status, POST /devices/:id/test-command,
 //           credentials format matching Phase 6C contract
+// Concurrency: Atomic INSERT ... ON CONFLICT DO NOTHING RETURNING * lock
 // ---------------------------------------------------------------------------
 
 const { Router } = require('express');
 const mqtt = require('mqtt');
+const { createAuth, createRbac, createServiceLogger } = require('@sift/common');
 const { getDb } = require('../db');
-const { requireAuth } = require('../middleware/auth');
-const { requireRole } = require('../middleware/rbac');
 const magistrala = require('../services/magistrala');
 const thingsboard = require('../services/thingsboard');
 const config = require('../config');
-const logger = require('../logger');
+
+const logger = createServiceLogger(config.serviceName);
+const { requireAuth } = createAuth(config);
+const { requireRole } = createRbac({ getDbFn: getDb, logger });
 
 const router = Router();
 
-// Helper: compute device status at read time (never stored)
-// Section 5.3: 'revoked' if revoked; else 'pending' if firstConnectedAt is null;
-// else 'online' if now minus lastSeenAt is at most offlineAfterSeconds; else 'offline'
 function computeDeviceStatus(device, offlineAfterSeconds = config.offlineAfterSeconds) {
   if (device.status === 'revoked') {
     return 'revoked';
@@ -44,7 +44,6 @@ function computeDeviceStatus(device, offlineAfterSeconds = config.offlineAfterSe
   return 'pending';
 }
 
-// Helper: parse last value json safely
 function parseLastValue(lastValueJson) {
   if (!lastValueJson) return null;
   try {
@@ -54,7 +53,6 @@ function parseLastValue(lastValueJson) {
   }
 }
 
-// Helper: format device for client response (never returns secret)
 function formatDevice(device) {
   return {
     id: device.id,
@@ -70,7 +68,6 @@ function formatDevice(device) {
 }
 
 // GET /v1/tenants/:slug/devices
-// Any member can list devices (FR-14: shared devices)
 router.get('/:slug/devices', requireAuth, requireRole('member'), (req, res) => {
   const db = getDb();
   const rawDevices = db.prepare(`
@@ -84,7 +81,7 @@ router.get('/:slug/devices', requireAuth, requireRole('member'), (req, res) => {
   const tenant = db.prepare('SELECT plan FROM tenants WHERE id = ?').get(req.tenant.id);
   const planLimits = config.plans[tenant.plan] || { devices: 10 };
 
-  const activeCount = devices.filter(d => d.status !== 'revoked').length;
+  const activeCount = devices.filter((d) => d.status !== 'revoked').length;
 
   res.json({
     devices,
@@ -96,7 +93,6 @@ router.get('/:slug/devices', requireAuth, requireRole('member'), (req, res) => {
 });
 
 // GET /v1/tenants/:slug/devices/:id/status
-// Phase 6C: Polling endpoint for live connection status in add-device wizard
 router.get('/:slug/devices/:id/status', requireAuth, requireRole('member'), (req, res) => {
   const deviceId = parseInt(req.params.id, 10);
   const db = getDb();
@@ -118,9 +114,10 @@ router.get('/:slug/devices/:id/status', requireAuth, requireRole('member'), (req
 });
 
 // POST /v1/tenants/:slug/devices
-// Register a new device. Requires admin or owner.
-// Body: { name, kind? }  (kind: 'sensor' | 'switch' | 'simulator' | 'esp32')
 router.post('/:slug/devices', requireAuth, requireRole('admin'), async (req, res) => {
+  const db = getDb();
+  let newDeviceId = null;
+
   try {
     const { name, kind = 'sensor' } = req.body || {};
 
@@ -144,7 +141,6 @@ router.post('/:slug/devices', requireAuth, requireRole('admin'), async (req, res
       });
     }
 
-    const db = getDb();
     const tenant = db.prepare('SELECT * FROM tenants WHERE id = ?').get(req.tenant.id);
     const planLimits = config.plans[tenant.plan] || { devices: 10 };
 
@@ -163,6 +159,24 @@ router.post('/:slug/devices', requireAuth, requireRole('admin'), async (req, res
       });
     }
 
+    // Atomic concurrency lock (Task 4): claim device slot before calling external IoT APIs
+    const claimedDevice = db.prepare(`
+      INSERT INTO devices (tenant_id, name, kind, status)
+      VALUES (?, ?, ?, 'active')
+      ON CONFLICT(tenant_id, name) WHERE status != 'revoked' DO NOTHING
+      RETURNING *
+    `).get(req.tenant.id, cleanName, kind);
+
+    if (!claimedDevice) {
+      return res.status(409).json({
+        error: {
+          code: 'ALREADY_EXISTS',
+          message: `An active device named "${cleanName}" already exists in this household`,
+        },
+      });
+    }
+    newDeviceId = claimedDevice.id;
+
     // Create device in Magistrala (FR-05)
     let mgDevice;
     try {
@@ -171,21 +185,23 @@ router.post('/:slug/devices', requireAuth, requireRole('admin'), async (req, res
         kind,
       });
 
-      // Connect to telemetry channel (publish)
       await magistrala.connectDeviceToChannel(
         tenant.mg_workspace_id, mgDevice.id, tenant.mg_chan_telemetry
       );
 
-      // Connect to command channel (subscribe)
       await magistrala.connectDeviceToChannel(
         tenant.mg_workspace_id, mgDevice.id, tenant.mg_chan_commands
       );
     } catch (err) {
+      db.prepare('DELETE FROM devices WHERE id = ?').run(newDeviceId);
       logger.error('Magistrala device creation failed', { error: err.message });
       return res.status(502).json({
         error: { code: 'IOT_ERROR', message: 'Failed to create device in IoT platform' },
       });
     }
+
+    // Update claimed device row with Magistrala client ID
+    db.prepare('UPDATE devices SET mg_client_id = ? WHERE id = ?').run(mgDevice.id, newDeviceId);
 
     // Create device in ThingsBoard (for monitoring, FR-07)
     try {
@@ -193,13 +209,6 @@ router.post('/:slug/devices', requireAuth, requireRole('admin'), async (req, res
     } catch (err) {
       logger.warn('ThingsBoard device creation failed (non-critical)', { error: err.message });
     }
-
-    // Save to local DB
-    const result = db.prepare(
-      'INSERT INTO devices (tenant_id, name, kind, mg_client_id) VALUES (?, ?, ?, ?)'
-    ).run(req.tenant.id, cleanName, kind, mgDevice.id);
-
-    const newDeviceId = result.lastInsertRowid;
 
     logger.info('Device registered', {
       slug: tenant.slug,
@@ -218,7 +227,6 @@ router.post('/:slug/devices', requireAuth, requireRole('admin'), async (req, res
     const telemetryTopic = `channels/${tenant.mg_chan_telemetry}/messages`;
     const commandTopic = `channels/${tenant.mg_chan_commands}/messages`;
 
-    // Credentials shown once (P4 / Section 5.2)
     res.setHeader('Cache-Control', 'no-store');
 
     res.status(201).json({
@@ -252,12 +260,14 @@ router.post('/:slug/devices', requireAuth, requireRole('admin'), async (req, res
       shownOnce: true,
     });
   } catch (err) {
+    if (newDeviceId) {
+      try { db.prepare('DELETE FROM devices WHERE id = ? AND mg_client_id IS NULL').run(newDeviceId); } catch (_) {}
+    }
     logger.error('Device registration failed', { error: err.message });
     res.status(500).json({ error: { code: 'INTERNAL_ERROR', message: 'Internal server error' } });
   }
 });
 
-// Publish Home Assistant MQTT Discovery payloads for automatic entity creation
 async function publishHADiscovery(tenant, deviceName, deviceId) {
   const mqttUrl = config.mqttUrl;
   const uniqueId = deviceId;
@@ -356,7 +366,6 @@ async function publishHADiscovery(tenant, deviceName, deviceId) {
 }
 
 // POST /v1/tenants/:slug/devices/:deviceId/rotate-secret
-// Rotate device credentials. Requires admin or owner. (FR-05)
 router.post('/:slug/devices/:deviceId/rotate-secret', requireAuth, requireRole('admin'), async (req, res) => {
   try {
     const deviceId = parseInt(req.params.deviceId, 10);
@@ -374,7 +383,6 @@ router.post('/:slug/devices/:deviceId/rotate-secret', requireAuth, requireRole('
 
     const tenant = db.prepare('SELECT * FROM tenants WHERE id = ?').get(req.tenant.id);
 
-    // Rotate in Magistrala
     const result = await magistrala.rotateDeviceSecret(tenant.mg_workspace_id, device.mg_client_id);
     const newSecret = result.credentials?.secret || result.secret;
 
@@ -404,7 +412,6 @@ router.post('/:slug/devices/:deviceId/rotate-secret', requireAuth, requireRole('
 });
 
 // DELETE /v1/tenants/:slug/devices/:deviceId
-// Revoke a device. Requires admin or owner. (FR-05)
 router.delete('/:slug/devices/:deviceId', requireAuth, requireRole('admin'), async (req, res) => {
   try {
     const deviceId = parseInt(req.params.deviceId, 10);
@@ -422,14 +429,12 @@ router.delete('/:slug/devices/:deviceId', requireAuth, requireRole('admin'), asy
 
     const tenant = db.prepare('SELECT * FROM tenants WHERE id = ?').get(req.tenant.id);
 
-    // Disable in Magistrala
     try {
       await magistrala.disableDevice(tenant.mg_workspace_id, device.mg_client_id);
     } catch (err) {
       logger.warn('Magistrala device disable failed', { error: err.message });
     }
 
-    // Soft-delete locally (mark status as revoked)
     db.prepare("UPDATE devices SET status = 'revoked' WHERE id = ?").run(deviceId);
 
     logger.info('Device revoked', { slug: tenant.slug, deviceId });
@@ -441,8 +446,7 @@ router.delete('/:slug/devices/:deviceId', requireAuth, requireRole('admin'), asy
   }
 });
 
-// POST /v1/tenants/:slug/devices/:deviceId/test-command (SHOULD S1)
-// Sends a test command ("ON" or "OFF") to a switch device via MQTT
+// POST /v1/tenants/:slug/devices/:deviceId/test-command
 router.post('/:slug/devices/:deviceId/test-command', requireAuth, requireRole('member'), async (req, res) => {
   try {
     const deviceId = parseInt(req.params.deviceId, 10);
@@ -468,7 +472,6 @@ router.post('/:slug/devices/:deviceId/test-command', requireAuth, requireRole('m
     const tenant = db.prepare('SELECT * FROM tenants WHERE id = ?').get(req.tenant.id);
     const commandTopic = `channels/${tenant.mg_chan_commands}/messages`;
 
-    // Publish command
     const client = mqtt.connect(config.mqttUrl, {
       clientId: `cmd-${Date.now()}`,
       connectTimeout: 4000,
@@ -500,4 +503,84 @@ router.post('/:slug/devices/:deviceId/test-command', requireAuth, requireRole('m
   }
 });
 
+// Internal handler: POST /internal/devices/seen
+function handleInternalDevicesSeen(req, res) {
+  const { reports } = req.body || {};
+  if (!Array.isArray(reports)) {
+    return res.status(400).json({
+      error: { code: 'VALIDATION', message: 'reports must be an array' },
+    });
+  }
+
+  const db = getDb();
+  let accepted = 0;
+  let rejected = 0;
+
+  const updateStmt = db.prepare(`
+    UPDATE devices
+    SET first_connected_at = COALESCE(first_connected_at, ?),
+        last_seen_at = ?,
+        last_value_json = ?
+    WHERE id = ?
+  `);
+
+  const lookupStmt = db.prepare(`
+    SELECT d.id
+    FROM devices d
+    JOIN tenants t ON d.tenant_id = t.id
+    WHERE t.slug = ? AND (d.id = ? OR d.mg_client_id = ?) AND d.status = 'active'
+  `);
+
+  const runBatch = db.transaction((items) => {
+    for (const report of items) {
+      const { tenantSlug, deviceId, ts, values } = report || {};
+      if (!tenantSlug || !deviceId) {
+        rejected++;
+        continue;
+      }
+
+      const found = lookupStmt.get(tenantSlug, deviceId, deviceId);
+      if (!found) {
+        rejected++;
+        continue;
+      }
+
+      const reportTime = ts || new Date().toISOString();
+      let valueJson = null;
+      if (values) {
+        try {
+          valueJson = JSON.stringify(values).slice(0, 2048);
+        } catch {
+          valueJson = null;
+        }
+      }
+
+      updateStmt.run(reportTime, reportTime, valueJson, found.id);
+      accepted++;
+    }
+  });
+
+  try {
+    runBatch(reports);
+    res.json({ accepted, rejected });
+  } catch (err) {
+    logger.error('Failed to process device seen reports', { error: err.message });
+    res.status(500).json({ error: { code: 'INTERNAL_ERROR', message: 'Database batch update failed' } });
+  }
+}
+
+// Internal handler: GET /internal/observers
+function handleInternalObservers(req, res) {
+  const db = getDb();
+  const observers = db.prepare(`
+    SELECT slug, mg_workspace_id as workspaceId, mg_chan_telemetry as telemetryChannelId, mg_chan_commands as commandChannelId
+    FROM tenants
+    WHERE status = 'active' AND mg_chan_telemetry IS NOT NULL
+  `).all();
+  res.json({ observers });
+}
+
 module.exports = router;
+module.exports.router = router;
+module.exports.handleInternalDevicesSeen = handleInternalDevicesSeen;
+module.exports.handleInternalObservers = handleInternalObservers;

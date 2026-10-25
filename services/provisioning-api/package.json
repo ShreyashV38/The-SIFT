@@ -1,13 +1,16 @@
 {
   "name": "cloudnest-provisioning-api",
   "version": "1.0.0",
-  "description": "CloudNest multi-tenant IoT provisioning API",
+  "description": "CloudNest multi-tenant IoT provisioning API & gateway",
   "main": "src/index.js",
   "scripts": {
     "start": "node src/index.js",
     "dev": "node --watch src/index.js"
   },
   "dependencies": {
+    "@sift/common": "file:../../packages/sift-common",
+    "sift-identity-service": "file:../identity-service",
+    "sift-iot-broker-service": "file:../iot-broker-service",
     "bcrypt": "^5.1.1",
     "better-sqlite3": "^11.7.0",
     "cors": "^2.8.5",

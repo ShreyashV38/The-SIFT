@@ -1,38 +1,83 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="description" content="The SIFT (Scalable Isolated Framework for Things) — Production multi-tenant smart home automation and IoT telemetry platform with isolated Home Assistant instances.">
-  <meta name="theme-color" content="#161C40">
-  <title>The SIFT — Smart Home IoT Platform</title>
+  <meta name="description" content="The-SIFT — Precision Hardware-Cloud Multi-Tenant IoT & Smart Home Automation SaaS Platform.">
+  <meta name="theme-color" content="#08090C">
+  <title>The-SIFT — Cloud IoT &amp; Household Automation Platform</title>
   <link rel="icon" type="image/jpeg" href="favicon.jpg">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap">
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
   <a href="#app" class="skip-link">Skip to main content</a>
 
-  <header class="app-header">
-    <div class="header-container">
-      <a href="#/" class="brand-link" id="brand-home-link" aria-label="The SIFT Home">
-        <div class="brand-logo-frame">
-          <img src="logo.jpg" alt="The SIFT Emblem" class="brand-logo" width="34" height="34">
-        </div>
-        <div class="brand-title-wrap">
-          <span class="brand-title">The SIFT</span>
-          <span class="brand-tag">IoT Framework</span>
-        </div>
-      </a>
-
-      <nav id="header-nav" class="header-nav" aria-label="Main Navigation">
-      </nav>
-    </div>
-  </header>
-
   <div id="aria-live-region" class="sr-only" aria-live="polite" aria-atomic="true"></div>
 
-  <main id="app" class="main-content" role="main" tabindex="-1">
-  </main>
+  <!-- Application Shell Wrapper -->
+  <div id="shell-root" class="shell-root auth-mode">
+    <!-- Mobile Sidebar Backdrop -->
+    <div id="sidebar-backdrop" class="sidebar-backdrop" aria-hidden="true"></div>
+
+    <!-- Left Architectural Sidebar (Authenticated Mode) -->
+    <aside id="app-sidebar" class="app-sidebar" aria-label="Workspace Navigation">
+      <div class="sidebar-brand">
+        <a href="#/" class="brand-link" id="brand-home-link" aria-label="The-SIFT Workspace Home">
+          <span class="brand-glyph" aria-hidden="true">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <polygon points="12 2 2 7 12 12 22 7 12 2"/>
+              <polyline points="2 17 12 22 22 17"/>
+              <polyline points="2 12 12 17 22 12"/>
+            </svg>
+          </span>
+          <span class="brand-wordmark">
+            <span class="brand-title">The-SIFT</span>
+            <span class="brand-tag">CLOUD IOT</span>
+          </span>
+        </a>
+        <button type="button" id="sidebar-close-btn" class="icon-btn mobile-only" aria-label="Close navigation menu">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="18" y1="6" x2="6" y2="18"/>
+            <line x1="6" y1="6" x2="18" y2="18"/>
+          </svg>
+        </button>
+      </div>
+
+      <!-- Active Household Switcher -->
+      <div id="sidebar-switcher" class="sidebar-switcher"></div>
+
+      <!-- Primary Navigation Menu -->
+      <nav id="sidebar-nav" class="sidebar-nav" aria-label="Main Navigation"></nav>
+
+      <!-- Sidebar User Footer -->
+      <div id="sidebar-footer" class="sidebar-footer"></div>
+    </aside>
+
+    <!-- Primary Viewport Column -->
+    <div class="shell-viewport">
+      <!-- Sticky Top Bar (56px) -->
+      <header id="app-topbar" class="app-topbar">
+        <div class="topbar-left">
+          <button type="button" id="sidebar-open-btn" class="icon-btn mobile-only" aria-label="Open navigation menu">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="3" y1="12" x2="21" y2="12"/>
+              <line x1="3" y1="6" x2="21" y2="6"/>
+              <line x1="3" y1="18" x2="21" y2="18"/>
+            </svg>
+          </button>
+          <div id="header-nav" class="topbar-breadcrumbs" aria-label="Breadcrumb"></div>
+        </div>
+
+        <div class="topbar-right" id="topbar-actions"></div>
+      </header>
+
+      <!-- Main View Content -->
+      <main id="app" class="main-content" role="main" tabindex="-1"></main>
+    </div>
+  </div>
 
   <div id="toast-container" aria-label="Notifications" role="region"></div>
 

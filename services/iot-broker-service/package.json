@@ -1,14 +1,17 @@
 {
   "name": "sift-iot-broker-service",
   "version": "1.0.0",
-  "description": "The-SIFT IoT broker (Magistrala) integration microservice",
+  "description": "The-SIFT IoT broker (Magistrala & ThingsBoard) integration microservice",
   "main": "src/index.js",
   "scripts": {
-    "start": "node src/index.js"
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js"
   },
   "dependencies": {
     "@sift/common": "file:../../packages/sift-common",
     "express": "^4.21.1",
+    "express-rate-limit": "^7.4.1",
+    "mqtt": "^5.10.3",
     "node-fetch": "^3.3.2"
   }
 }

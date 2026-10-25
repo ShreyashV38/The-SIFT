@@ -1,0 +1,70 @@
+# ---------------------------------------------------------------------------
+# The-SIFT — AWS K3s Shared Worker ASG & PgBouncer Connection Pooler Spec
+# ---------------------------------------------------------------------------
+# Implements Option B from sift_audit_and_microservices_spec.md:
+# - 1 Shared EC2 Worker Auto Scaling Group (min: 2, max: 5 nodes)
+# - K3s Pod HPA per microservice (minReplicas: 2, maxReplicas: 5, 70% CPU)
+# - PgBouncer transaction pooler in front of PostgreSQL to cap max connections
+# ---------------------------------------------------------------------------
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pgbouncer
+  namespace: platform
+  labels:
+    app.kubernetes.io/name: pgbouncer
+    app.kubernetes.io/part-of: cloudnest
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: pgbouncer
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: pgbouncer
+    spec:
+      automountServiceAccountToken: false
+      nodeSelector:
+        sift.io/role: identity
+      containers:
+        - name: pgbouncer
+          image: edoburu/pgbouncer:1.21.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: postgres
+              containerPort: 5432
+          env:
+            - name: DB_HOST
+              value: "magistrala-postgres.platform.svc.cluster.local"
+            - name: DB_PORT
+              value: "5432"
+            - name: POOL_MODE
+              value: "transaction"
+            - name: MAX_CLIENT_CONN
+              value: "200"
+            - name: DEFAULT_POOL_SIZE
+              value: "20"
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              cpu: "200m"
+              memory: "128Mi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: pgbouncer
+  namespace: platform
+  labels:
+    app.kubernetes.io/name: pgbouncer
+spec:
+  type: ClusterIP
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: 5432
+  selector:
+    app.kubernetes.io/name: pgbouncer

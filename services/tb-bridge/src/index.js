@@ -43,6 +43,8 @@ const CONFIG = {
   magistralaMqttUrl: process.env.MAGISTRALA_MQTT_URL || 'mqtt://magistrala-mqtt.platform.svc.cluster.local:1883',
   magistralaObserverClientId: process.env.MAGISTRALA_OBSERVER_CLIENT_ID || 'tb-bridge-observer',
   magistralaObserverSecret: process.env.MAGISTRALA_OBSERVER_SECRET || 'observer-secret',
+  mqttShareGroup: process.env.MQTT_SHARE_GROUP || 'sift-bridge',
+  useSharedSubscriptions: process.env.USE_SHARED_SUBSCRIPTIONS === 'true',
 
   // ThingsBoard
   tbMqttUrl: process.env.TB_MQTT_URL || 'mqtt://thingsboard.observability.svc.cluster.local:1883',
@@ -213,10 +215,38 @@ function parseTelemetry(payload) {
 
 // Initialize Magistrala MQTT client
 let mgClient = null;
+
+function subscribeChannelTopic(channelId, slug) {
+  if (!mgClient || !mgClient.connected) return;
+  const rawTopic = `channels/${channelId}/messages/#`;
+  const sharedTopic = CONFIG.useSharedSubscriptions
+    ? `$share/${CONFIG.mqttShareGroup}/${rawTopic}`
+    : rawTopic;
+
+  mgClient.subscribe(sharedTopic, { qos: 1 }, (err) => {
+    if (err && CONFIG.useSharedSubscriptions) {
+      // Fallback to standard subscription if broker does not support $share
+      mgClient.subscribe(rawTopic, { qos: 1 }, (fallbackErr) => {
+        if (fallbackErr) {
+          logger.error('Failed to subscribe to channel', { channelId, slug, error: fallbackErr.message });
+        } else {
+          logger.info('Subscribed to tenant telemetry channel (fallback)', { channelId, slug, topic: rawTopic });
+        }
+      });
+    } else if (err) {
+      logger.error('Failed to subscribe to channel', { channelId, slug, error: err.message });
+    } else {
+      logger.info('Subscribed to tenant telemetry channel', { channelId, slug, topic: sharedTopic });
+    }
+  });
+}
+
 function initMagistralaClient() {
-  logger.info('Connecting to Magistrala MQTT broker', { url: CONFIG.magistralaMqttUrl });
+  const replicaSuffix = process.env.HOSTNAME || process.pid;
+  const clientId = `${CONFIG.magistralaObserverClientId}-${replicaSuffix}`;
+  logger.info('Connecting to Magistrala MQTT broker', { url: CONFIG.magistralaMqttUrl, clientId });
   mgClient = mqtt.connect(CONFIG.magistralaMqttUrl, {
-    clientId: CONFIG.magistralaObserverClientId,
+    clientId,
     username: CONFIG.magistralaObserverClientId,
     password: CONFIG.magistralaObserverSecret,
     reconnectPeriod: 5000,
@@ -274,14 +304,7 @@ function resubscribeChannels() {
   if (!mgClient || !mgClient.connected) return;
 
   for (const [channelId, info] of activeChannels.entries()) {
-    const topic = `channels/${channelId}/messages/#`;
-    mgClient.subscribe(topic, { qos: 1 }, (err) => {
-      if (err) {
-        logger.error('Failed to subscribe to channel', { channelId, slug: info.slug, error: err.message });
-      } else {
-        logger.info('Subscribed to tenant telemetry channel', { channelId, slug: info.slug, topic });
-      }
-    });
+    subscribeChannelTopic(channelId, info.slug);
   }
   metrics.subscribedChannels = activeChannels.size;
 }
@@ -308,17 +331,7 @@ async function pollProvisioningApi() {
         });
         newCount++;
 
-        if (mgClient && mgClient.connected) {
-          const topic = `channels/${obs.telemetryChannelId}/messages/#`;
-          mgClient.subscribe(topic, { qos: 1 }, (err) => {
-            if (!err) {
-              logger.info('Subscribed to new tenant telemetry channel', {
-                slug: obs.slug,
-                channelId: obs.telemetryChannelId,
-              });
-            }
-          });
-        }
+        subscribeChannelTopic(obs.telemetryChannelId, obs.slug);
       }
     }
 

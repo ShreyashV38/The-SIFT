@@ -1,184 +1,367 @@
 // ---------------------------------------------------------------------------
-// SIFT Tenant Portal — Help & Troubleshooting View (#/help/esp32)
+// The-SIFT Cloud Platform — Production Cloud Documentation Hub (#/help/esp32)
 // ---------------------------------------------------------------------------
 
-import { copyToClipboard } from '../ui.js';
+import { copyToClipboard, resolveCloudDomain, resolveMqttHost } from '../ui.js';
 
-export function renderHelp(container, router) {
+export function renderHelp(container) {
+  const cloudDomain = resolveCloudDomain();
+  const mqttHost = resolveMqttHost();
+
+  const senmlClimatePayload = JSON.stringify([
+    { bn: 'urn:dev:ow:sift-env-01:', bt: 1730000000, n: 'temperature', u: 'Cel', v: 23.4 },
+    { n: 'humidity', u: '%RH', v: 46.8 },
+  ], null, 2);
+
+  const jsonBridgePayload = JSON.stringify({
+    id: 'living_room_climate_01',
+    temperature: 23.4,
+    humidity: 46.8,
+    battery: 98,
+  }, null, 2);
+
+  const commandDownlinkPayload = JSON.stringify({
+    id: 'living_room_climate_01',
+    command: 'SET_STATE',
+    state: 'ON',
+    target_temp: 22.0,
+  }, null, 2);
+
   container.innerHTML = `
-    <div style="max-width: 900px; margin: 1rem auto;">
+    <div>
+      <!-- Page Header -->
       <div class="page-header">
         <div>
-          <h1>Device Connection & Troubleshooting Guide</h1>
-          <p style="margin-bottom: 0;">
-            Comprehensive reference for provisioning physical ESP32 boards and virtual telemetry sensors into SIFT.
+          <h1>Cloud Architecture & Hardware Documentation</h1>
+          <p class="page-subtitle">
+            Technical reference for multi-tenant cloud isolation, ESP32 MQTT onboarding, SenML telemetry schemas, and RBAC security boundaries.
           </p>
         </div>
         <div class="page-header-actions">
-          <a href="#/" class="btn btn-secondary btn-sm">← Overview</a>
+          <span class="badge badge-online"><span class="led-dot led-emerald"></span>CLOUD SPEC v2.4</span>
+          <a href="#/" class="btn btn-secondary btn-sm">Back to Workspace</a>
         </div>
       </div>
 
-      <!-- Quick Prerequisites -->
-      <div class="card">
-        <h3 style="margin-bottom: var(--space-md);">1. Hardware & System Prerequisites</h3>
-        <ul class="feature-list" style="margin-bottom: 0;">
-          <li>
-            <span class="badge badge-role">Board</span>
-            <span><strong>ESP32 Development Board</strong> (ESP32 Dev Module, NodeMCU-32S, ESP-WROOM-32).</span>
-          </li>
-          <li>
-            <span class="badge badge-role">Cable</span>
-            <span><strong>Data-Capable USB Cable</strong> (Micro-USB or USB-C. Charge-only cables will not be detected by your computer).</span>
-          </li>
-          <li>
-            <span class="badge badge-role">WiFi</span>
-            <span><strong>2.4 GHz WiFi Network</strong> (ESP32 microcontrollers do not support 5 GHz networks).</span>
-          </li>
-          <li>
-            <span class="badge badge-role">Software</span>
-            <span><strong>Arduino IDE 2</strong> (for hardware microcontrollers) or <strong>Node.js LTS</strong> (for CLI simulator).</span>
-          </li>
-          <li>
-            <span class="badge badge-role">Auth</span>
-            <span><strong>Credentials</strong> generated from the SIFT Add-Device Wizard.</span>
-          </li>
-        </ul>
+      <!-- Search & Category Filter Bar -->
+      <div class="card" style="padding: var(--space-md) var(--space-lg); margin-bottom: var(--space-lg);">
+        <div class="action-bar" style="margin-bottom: 0;">
+          <div class="search-input-wrap" style="max-width: 360px;">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+            </svg>
+            <input type="text" id="docs-search-input" placeholder="Search architecture, MQTT, SenML, Home Assistant, RBAC...">
+          </div>
+
+          <div class="filter-pills" id="docs-tab-pills">
+            <button type="button" class="filter-pill active" data-doc-tab="all">All Specifications</button>
+            <button type="button" class="filter-pill" data-doc-tab="architecture">1. Cloud Isolation</button>
+            <button type="button" class="filter-pill" data-doc-tab="esp32">2. ESP32 & MQTT</button>
+            <button type="button" class="filter-pill" data-doc-tab="senml">3. SenML Schema</button>
+            <button type="button" class="filter-pill" data-doc-tab="ha-cloud">4. Home Assistant Cloud</button>
+            <button type="button" class="filter-pill" data-doc-tab="rbac">5. RBAC Matrix</button>
+          </div>
+        </div>
       </div>
 
-      <!-- Step by Step Arduino Guide -->
-      <div class="card">
-        <h3 style="margin-bottom: var(--space-md);">2. Physical ESP32 Step-by-Step Setup</h3>
-        <ol style="margin-left: 1.25rem; font-size: 0.875rem; line-height: 1.9; color: var(--text-secondary);">
-          <li>Download and install <strong>Arduino IDE 2</strong> from official sources.</li>
-          <li>In Arduino IDE, open <em>File → Preferences</em> and add the ESP32 Board Manager URL:
-            <div class="copy-box" style="margin: 0.4rem 0;">
-              <code>https://espressif.github.io/arduino-esp32/package_esp32_index.json</code>
-              <button id="copy-board-url" class="btn btn-secondary btn-sm">Copy URL</button>
+      <!-- Documentation Sections Container -->
+      <div id="docs-sections-container" style="display: flex; flex-direction: column; gap: var(--space-lg);">
+
+        <!-- 1. Household Cloud Architecture & Isolation -->
+        <section class="card doc-section" data-doc-section="architecture" style="margin-bottom: 0;">
+          <div class="card-header">
+            <div>
+              <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.25rem;">
+                <span class="badge badge-accent mono">SECTION 01</span>
+                <span class="badge badge-online"><span class="led-dot led-emerald"></span>KUBERNETES NAMESPACE ISOLATED</span>
+              </div>
+              <div class="card-title" style="font-size: 1.05rem;">Household Cloud Architecture & Multi-Tenant Isolation</div>
+              <div class="card-subtitle">Strict hardware-to-cloud tenant segregation across compute, network, and messaging planes.</div>
             </div>
-          </li>
-          <li>Under <em>Tools → Board → Boards Manager</em>, search for <code>esp32</code> by Espressif and click <strong>Install</strong>.</li>
-          <li>Under <em>Tools → Manage Libraries</em>, search for <code>PubSubClient</code> by Nick O'Leary and click <strong>Install</strong> (version 2.8 or newer).</li>
-          <li>Open the downloaded <code>sift-device.ino</code> file. If prompted to move to a folder, click <strong>OK</strong>.</li>
-          <li>Select your board: <em>Tools → Board → ESP32 Arduino → ESP32 Dev Module</em> and choose your board's serial COM port under <em>Tools → Port</em>.</li>
-          <li>Click <strong>Upload</strong>. (If you see "Connecting......", press and hold the physical <strong>BOOT</strong> button on your ESP32 until the flashing percentage begins).</li>
-          <li>Open <em>Tools → Serial Monitor</em> and set the baud rate to <strong>115200</strong>.</li>
-        </ol>
-      </div>
+          </div>
 
-      <!-- Expected Serial Output -->
-      <div class="card">
-        <h3 style="margin-bottom: 0.35rem;">3. Expected Serial Monitor Output</h3>
-        <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: var(--space-md);">
-          When the sketch boots successfully, the Serial Monitor prints the following connection log:
-        </p>
-        <div class="terminal-box">
-WiFi connecting to Home_2.4G<br>
-....<br>
-WiFi connected: 192.168.1.145<br>
-MQTT connecting...<br>
-MQTT connected<br>
-Published (ok): {"id":"dev_01","temperature":24.5}<br>
-Published (ok): {"id":"dev_01","temperature":24.6}
-        </div>
-      </div>
+          <div class="grid-3" style="margin-bottom: var(--space-md);">
+            <div style="padding: var(--space-md); background: var(--bg-canvas); border: 1px solid var(--border-subtle); border-radius: var(--radius-md);">
+              <div class="mono" style="font-size: 0.72rem; color: var(--accent-primary); font-weight: 600; margin-bottom: 0.35rem;">01 / COMPUTE PLANE</div>
+              <div style="font-weight: 600; font-size: 0.875rem; color: var(--text-primary); margin-bottom: 0.35rem;">Dedicated K8s Namespace</div>
+              <p style="font-size: 0.8rem; color: var(--text-secondary); margin: 0;">
+                Every household provisions an isolated Kubernetes namespace (<code class="mono">tenant-&lt;slug&gt;</code>) governed by strict <code class="mono">ResourceQuota</code>, <code class="mono">LimitRange</code>, and zero-trust <code class="mono">NetworkPolicy</code> boundaries.
+              </p>
+            </div>
 
-      <!-- Virtual Device Guide -->
-      <div class="card">
-        <h3 style="margin-bottom: 0.35rem;">4. Virtual Sensor Simulator (No Hardware Required)</h3>
-        <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: var(--space-md);">
-          If you do not have physical hardware, you can simulate a real device using the lightweight Node.js CLI tool:
-        </p>
-        <ol style="margin-left: 1.25rem; font-size: 0.875rem; line-height: 1.8; color: var(--text-secondary);">
-          <li>Install <strong>Node.js LTS</strong> if not already present on your machine.</li>
-          <li>Save both <code>sift-device.json</code> and <code>one-device.js</code> into a folder.</li>
-          <li>Run the following command:</li>
-        </ol>
-        <div class="copy-box" style="margin-top: 0.6rem;">
-          <code>npm install mqtt && node one-device.js --config .\\sift-device.json</code>
-          <button id="copy-run-cmd" class="btn btn-secondary btn-sm">Copy</button>
-        </div>
-      </div>
+            <div style="padding: var(--space-md); background: var(--bg-canvas); border: 1px solid var(--border-subtle); border-radius: var(--radius-md);">
+              <div class="mono" style="font-size: 0.72rem; color: var(--led-emerald); font-weight: 600; margin-bottom: 0.35rem;">02 / MESSAGING PLANE</div>
+              <div style="font-weight: 600; font-size: 0.875rem; color: var(--text-primary); margin-bottom: 0.35rem;">Magistrala IoT Partition</div>
+              <p style="font-size: 0.8rem; color: var(--text-secondary); margin: 0;">
+                Each household receives a dedicated Magistrala telemetry Channel. Hardware Things authenticate with unique cryptographic Thing Secrets and can publish only to their authorized channel topic.
+              </p>
+            </div>
 
-      <!-- Troubleshooting Table -->
-      <div class="card" style="padding: 0; overflow: hidden;">
-        <div style="padding: 1.25rem; border-bottom: 1px solid var(--border);">
-          <h3 style="margin-bottom: 0.25rem;">5. Troubleshooting & Diagnostics</h3>
-          <p style="font-size: 0.8125rem; margin-bottom: 0; color: var(--text-muted);">
-            Common connection, upload, and broker issues and how to resolve them:
-          </p>
-        </div>
+            <div style="padding: var(--space-md); background: var(--bg-canvas); border: 1px solid var(--border-subtle); border-radius: var(--radius-md);">
+              <div class="mono" style="font-size: 0.72rem; color: var(--led-amber); font-weight: 600; margin-bottom: 0.35rem;">03 / APPLICATION PLANE</div>
+              <div style="font-weight: 600; font-size: 0.875rem; color: var(--text-primary); margin-bottom: 0.35rem;">Telemetry Bridge & HA Pod</div>
+              <p style="font-size: 0.8rem; color: var(--text-secondary); margin: 0;">
+                The cloud Telemetry Bridge normalizes incoming MQTT messages and auto-discovers entities inside the household's dedicated Home Assistant instance at <code class="mono">https://&lt;slug&gt;.${cloudDomain}</code>.
+              </p>
+            </div>
+          </div>
 
-        <div class="table-container" style="border: none; border-radius: 0;">
-          <table>
-            <thead>
-              <tr>
-                <th style="width: 28%;">Symptom</th>
-                <th style="width: 28%;">Likely Cause</th>
-                <th>Recommended Fix</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr>
-                <td><strong>Port not listed in Arduino IDE</strong></td>
-                <td>Charge-only USB cable or missing USB-to-UART driver</td>
-                <td>Use a verified data cable; install CP210x or CH340 driver for your board model.</td>
-              </tr>
-              <tr>
-                <td><strong>Upload stuck on "Connecting......"</strong></td>
-                <td>Board not in flashing bootloader mode</td>
-                <td>Hold the physical <strong>BOOT</strong> button on the ESP32 while the IDE connects, release once flashing begins.</td>
-              </tr>
-              <tr>
-                <td><strong>Serial prints dots then restarts</strong></td>
-                <td>Incorrect WiFi credentials or 5 GHz network</td>
-                <td>Verify SSID and password; ensure network is 2.4 GHz (ESP32 does not support 5 GHz).</td>
-              </tr>
-              <tr>
-                <td><code>MQTT failed, rc=-2</code></td>
-                <td>Board cannot reach MQTT host IP</td>
-                <td>Host must be computer's LAN IP (not localhost); allow inbound TCP port 1883 in Windows Firewall.</td>
-              </tr>
-              <tr>
-                <td><code>MQTT failed, rc=-4</code></td>
-                <td>Connection timeout</td>
-                <td>Ensure ESP32 and computer running SIFT are connected to the same subnet / router.</td>
-              </tr>
-              <tr>
-                <td><code>rc=4</code> or <code>rc=5</code></td>
-                <td>Bad credentials or revoked device</td>
-                <td>Use the exact credentials generated by the wizard, or rotate the device secret on the device detail page.</td>
-              </tr>
-              <tr>
-                <td><code>Published (FAILED)</code></td>
-                <td>Payload larger than default client buffer</td>
-                <td>Ensure <code>mqtt.setBufferSize(512);</code> remains present in the sketch setup function.</td>
-              </tr>
-              <tr>
-                <td><strong>Serial says Published (ok) but portal says Waiting</strong></td>
-                <td>Wrong topic or missing <code>"id"</code> in payload</td>
-                <td>Check telemetry topic matches wizard; ensure payload JSON contains the string <code>"id"</code> field.</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
+          <div class="terminal-box" style="font-size: 0.75rem;">
+            <span class="term-muted"># End-to-End Cloud Telemetry & Command Dataflow</span><br>
+            [ESP32 / Hardware Node] ──(MQTT / TLS :1883)──► [Magistrala mProxy (${mqttHost})]<br>
+            &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;│<br>
+            &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;channels/&lt;channel_id&gt;/messages/senml<br>
+            &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;▼<br>
+            [Home Assistant Cloud (&lt;slug&gt;.${cloudDomain})] ◄──(Auto-Discovery)── [SIFT Telemetry Bridge]
+          </div>
+        </section>
 
-      <!-- Protocol & Security Standard Banner -->
-      <div class="banner banner-info" style="margin-top: 1.5rem;">
-        <div>
-          <strong>Security & Isolation Architecture:</strong>
-          All MQTT telemetry traffic is strictly segregated per household tenant using Magistrala topic boundaries and tenant tokens. In cloud deployments, broker communication is encrypted via TLS (MQTTS).
-        </div>
+        <!-- 2. Connecting ESP32 & MQTT Hardware -->
+        <section class="card doc-section" data-doc-section="esp32" style="margin-bottom: 0;">
+          <div class="card-header">
+            <div>
+              <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.25rem;">
+                <span class="badge badge-accent mono">SECTION 02</span>
+                <span class="badge badge-neutral mono">MQTT v3.1.1 / TLS</span>
+              </div>
+              <div class="card-title" style="font-size: 1.05rem;">Connecting ESP32 & MQTT Hardware to the Cloud Broker</div>
+              <div class="card-subtitle">Step-by-step firmware flashing and cloud connectivity verification workflow.</div>
+            </div>
+          </div>
+
+          <div class="grid-2" style="margin-bottom: var(--space-md);">
+            <div>
+              <h4 style="font-size: 0.85rem; margin-bottom: 0.5rem; color: var(--text-primary);">Hardware & Toolchain Requirements</h4>
+              <ul class="feature-list">
+                <li>
+                  <span class="feature-check">01</span>
+                  <span><strong>Microcontroller:</strong> ESP32-WROOM-32, ESP32-S3, or NodeMCU-32S with 2.4 GHz Wi-Fi connectivity.</span>
+                </li>
+                <li>
+                  <span class="feature-check">02</span>
+                  <span><strong>Arduino / PlatformIO:</strong> Install the official Espressif <code class="mono">esp32</code> board package and <code class="mono">PubSubClient</code> (&ge; v2.8).</span>
+                </li>
+                <li>
+                  <span class="feature-check">03</span>
+                  <span><strong>Cloud Credentials:</strong> Generate a <code class="mono">Thing ID</code>, <code class="mono">Thing Secret</code>, and <code class="mono">Channel ID</code> from the household <strong>Provision Device</strong> wizard.</span>
+                </li>
+                <li>
+                  <span class="feature-check">04</span>
+                  <span><strong>Cloud Verification Client:</strong> Use the downloadable <code class="mono">sift-device-client.js</code> utility from any device page to verify cloud broker routing prior to flashing physical silicon.</span>
+                </li>
+              </ul>
+            </div>
+
+            <div>
+              <h4 style="font-size: 0.85rem; margin-bottom: 0.5rem; color: var(--text-primary);">Espressif Board Manager Index URL</h4>
+              <div class="copy-box" style="margin-bottom: var(--space-md);">
+                <code>https://espressif.github.io/arduino-esp32/package_esp32_index.json</code>
+                <button id="copy-esp32-index-btn" class="btn btn-secondary btn-xs">Copy URL</button>
+              </div>
+
+              <h4 style="font-size: 0.85rem; margin-bottom: 0.5rem; color: var(--text-primary);">Cloud Broker Endpoint Parameters</h4>
+              <div class="kv-grid">
+                <div class="kv-row">
+                  <span class="kv-key">Cloud MQTT Host</span>
+                  <span class="kv-val">${mqttHost}</span>
+                </div>
+                <div class="kv-row">
+                  <span class="kv-key">MQTT TCP / TLS Ports</span>
+                  <span class="kv-val">1883 (TCP) / 8883 (TLS)</span>
+                </div>
+                <div class="kv-row">
+                  <span class="kv-key">MQTT Username</span>
+                  <span class="kv-val">&lt;Thing ID&gt;</span>
+                </div>
+                <div class="kv-row">
+                  <span class="kv-key">MQTT Password</span>
+                  <span class="kv-val">&lt;Thing Secret&gt;</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- 3. SenML Telemetry Payload Schema -->
+        <section class="card doc-section" data-doc-section="senml" style="margin-bottom: 0;">
+          <div class="card-header">
+            <div>
+              <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.25rem;">
+                <span class="badge badge-accent mono">SECTION 03</span>
+                <span class="badge badge-neutral mono">RFC 8428 SENML + JSON</span>
+              </div>
+              <div class="card-title" style="font-size: 1.05rem;">SenML & Bridge Telemetry Payload Specifications</div>
+              <div class="card-subtitle">Standardized payload schemas for uplink sensor telemetry and downlink actuator commands.</div>
+            </div>
+          </div>
+
+          <div class="grid-3">
+            <div>
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.4rem;">
+                <span class="mono" style="font-size: 0.75rem; font-weight: 600; color: var(--text-primary);">A. RFC 8428 SenML Array</span>
+                <button class="btn btn-secondary btn-xs copy-doc-payload" data-payload="${encodeURIComponent(senmlClimatePayload)}">Copy JSON</button>
+              </div>
+              <pre class="terminal-box" style="margin: 0; font-size: 0.74rem; min-height: 170px;">${senmlClimatePayload}</pre>
+            </div>
+
+            <div>
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.4rem;">
+                <span class="mono" style="font-size: 0.75rem; font-weight: 600; color: var(--text-primary);">B. Normalized Telemetry JSON</span>
+                <button class="btn btn-secondary btn-xs copy-doc-payload" data-payload="${encodeURIComponent(jsonBridgePayload)}">Copy JSON</button>
+              </div>
+              <pre class="terminal-box" style="margin: 0; font-size: 0.74rem; min-height: 170px;">${jsonBridgePayload}</pre>
+            </div>
+
+            <div>
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.4rem;">
+                <span class="mono" style="font-size: 0.75rem; font-weight: 600; color: var(--text-primary);">C. Actuator Downlink Command</span>
+                <button class="btn btn-secondary btn-xs copy-doc-payload" data-payload="${encodeURIComponent(commandDownlinkPayload)}">Copy JSON</button>
+              </div>
+              <pre class="terminal-box" style="margin: 0; font-size: 0.74rem; min-height: 170px;">${commandDownlinkPayload}</pre>
+            </div>
+          </div>
+        </section>
+
+        <!-- 4. Home Assistant Cloud Portal Integration -->
+        <section class="card doc-section" data-doc-section="ha-cloud" style="margin-bottom: 0;">
+          <div class="card-header">
+            <div>
+              <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.25rem;">
+                <span class="badge badge-accent mono">SECTION 04</span>
+                <span class="badge badge-online"><span class="led-dot led-emerald"></span>AUTO-DISCOVERY ENABLED</span>
+              </div>
+              <div class="card-title" style="font-size: 1.05rem;">Home Assistant Cloud Portal Integration</div>
+              <div class="card-subtitle">Zero-configuration entity registration and bidirectional state synchronization.</div>
+            </div>
+          </div>
+
+          <div class="grid-2">
+            <div style="padding: var(--space-md); background: var(--bg-canvas); border: 1px solid var(--border-subtle); border-radius: var(--radius-md);">
+              <h4 style="font-size: 0.85rem; margin-bottom: 0.4rem; color: var(--text-primary);">Automatic Entity Discovery</h4>
+              <p style="font-size: 0.8rem; color: var(--text-secondary); margin-bottom: 0.75rem;">
+                As soon as a provisioned device publishes its first telemetry frame to <code class="mono">channels/&lt;channel_id&gt;/messages/senml</code>, the SIFT Telemetry Bridge synthesizes Home Assistant MQTT Discovery descriptors and binds the sensor or actuator to your household instance.
+              </p>
+              <div class="mono" style="font-size: 0.74rem; color: var(--accent-primary);">
+                Portal Endpoint: https://&lt;household-slug&gt;.${cloudDomain}
+              </div>
+            </div>
+
+            <div style="padding: var(--space-md); background: var(--bg-canvas); border: 1px solid var(--border-subtle); border-radius: var(--radius-md);">
+              <h4 style="font-size: 0.85rem; margin-bottom: 0.4rem; color: var(--text-primary);">Initial Administrator Credentials</h4>
+              <p style="font-size: 0.8rem; color: var(--text-secondary); margin-bottom: 0.75rem;">
+                Your dedicated Home Assistant pod is pre-seeded during namespace provisioning. Retrieve the generated administrator username and initial password from the <strong>Home Assistant Cloud Launchpad</strong> on your Household Overview page.
+              </p>
+              <div class="mono" style="font-size: 0.74rem; color: var(--led-emerald);">
+                TLS Termination: Traefik Cloud Ingress + Automated Certs
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- 5. Role-Based Access Control (Admin, Member, Guest Matrix) -->
+        <section class="card doc-section" data-doc-section="rbac" style="margin-bottom: 0; padding: 0; overflow: hidden;">
+          <div style="padding: var(--space-lg) var(--space-xl); border-bottom: 1px solid var(--border-subtle);">
+            <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.25rem;">
+              <span class="badge badge-accent mono">SECTION 05</span>
+              <span class="badge badge-neutral mono">ZERO-TRUST RBAC</span>
+            </div>
+            <div class="card-title" style="font-size: 1.05rem;">Role-Based Access Control (Admin, Member, Guest Matrix)</div>
+            <div class="card-subtitle">Granular capability enforcement across the Provisioning API, Identity Service, and IoT Broker Service.</div>
+          </div>
+
+          <div class="table-container" style="border: none; border-radius: 0;">
+            <table>
+              <thead>
+                <tr>
+                  <th>Platform Capability</th>
+                  <th>Owner / Admin</th>
+                  <th>Household Member</th>
+                  <th>Guest (Invited / Read Scope)</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><strong>View Household Overview & Telemetry Readouts</strong></td>
+                  <td><span class="badge badge-online"><span class="led-dot led-emerald"></span>Allowed</span></td>
+                  <td><span class="badge badge-online"><span class="led-dot led-emerald"></span>Allowed</span></td>
+                  <td><span class="badge badge-neutral">Read-Only Preview</span></td>
+                </tr>
+                <tr>
+                  <td><strong>Launch Home Assistant Cloud Portal</strong></td>
+                  <td><span class="badge badge-online"><span class="led-dot led-emerald"></span>Allowed</span></td>
+                  <td><span class="badge badge-online"><span class="led-dot led-emerald"></span>Allowed</span></td>
+                  <td><span class="badge badge-danger">Restricted</span></td>
+                </tr>
+                <tr>
+                  <td><strong>Dispatch Downlink Actuator Commands</strong></td>
+                  <td><span class="badge badge-online"><span class="led-dot led-emerald"></span>Allowed</span></td>
+                  <td><span class="badge badge-online"><span class="led-dot led-emerald"></span>Allowed</span></td>
+                  <td><span class="badge badge-danger">Restricted</span></td>
+                </tr>
+                <tr>
+                  <td><strong>Provision Hardware & Rotate Thing Secrets</strong></td>
+                  <td><span class="badge badge-online"><span class="led-dot led-emerald"></span>Allowed</span></td>
+                  <td><span class="badge badge-danger">Admin Only</span></td>
+                  <td><span class="badge badge-danger">Restricted</span></td>
+                </tr>
+                <tr>
+                  <td><strong>Invite Members & Modify RBAC Roles</strong></td>
+                  <td><span class="badge badge-online"><span class="led-dot led-emerald"></span>Allowed</span></td>
+                  <td><span class="badge badge-danger">Owner / Admin Only</span></td>
+                  <td><span class="badge badge-danger">Restricted</span></td>
+                </tr>
+                <tr>
+                  <td><strong>Modify Infrastructure Tier & Decommission Namespace</strong></td>
+                  <td><span class="badge badge-accent"><span class="led-dot led-cobalt"></span>Primary Owner Only</span></td>
+                  <td><span class="badge badge-danger">Owner Only</span></td>
+                  <td><span class="badge badge-danger">Restricted</span></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
       </div>
     </div>
   `;
 
-  container.querySelector('#copy-board-url')?.addEventListener('click', function() {
+  // Copy board manager URL
+  container.querySelector('#copy-esp32-index-btn')?.addEventListener('click', function () {
     copyToClipboard('https://espressif.github.io/arduino-esp32/package_esp32_index.json', this);
   });
 
-  container.querySelector('#copy-run-cmd')?.addEventListener('click', function() {
-    copyToClipboard('npm install mqtt && node one-device.js --config .\\sift-device.json', this);
+  // Copy JSON payload examples
+  container.querySelectorAll('.copy-doc-payload').forEach(btn => {
+    btn.addEventListener('click', function () {
+      const text = decodeURIComponent(this.dataset.payload || '');
+      copyToClipboard(text, this);
+    });
   });
+
+  // Tab filter pills & live search
+  const searchInput = container.querySelector('#docs-search-input');
+  const tabPills = container.querySelectorAll('#docs-tab-pills .filter-pill');
+  const sections = container.querySelectorAll('.doc-section');
+  let activeTab = 'all';
+
+  function applyDocFilters() {
+    const query = (searchInput?.value || '').trim().toLowerCase();
+    sections.forEach(sec => {
+      const sectionKey = sec.dataset.docSection;
+      const matchesTab = activeTab === 'all' || sectionKey === activeTab;
+      const matchesQuery = !query || sec.textContent.toLowerCase().includes(query);
+      sec.style.display = matchesTab && matchesQuery ? 'block' : 'none';
+    });
+  }
+
+  tabPills.forEach(pill => {
+    pill.addEventListener('click', () => {
+      tabPills.forEach(p => p.classList.remove('active'));
+      pill.classList.add('active');
+      activeTab = pill.dataset.docTab || 'all';
+      applyDocFilters();
+    });
+  });
+
+  searchInput?.addEventListener('input', applyDocFilters);
 }

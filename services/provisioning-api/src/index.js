@@ -1,30 +1,22 @@
 // ---------------------------------------------------------------------------
-// CloudNest Provisioning API — Main Application Entrypoint (Phase 6C Updated)
+// The-SIFT — Tenant Provisioning Service & API Gateway (services/provisioning-api)
 // ---------------------------------------------------------------------------
-// FR-01: Tenant provisioning API
-// FR-11: User accounts & login
-// FR-12: Plans & limits
-// FR-13: Member roles & access control
-// FR-05: Device management
-// Phase 6C: Tenant Portal static hosting, GET /v1/config,
-//           port 8081 internal telemetry reporting (/internal/devices/seen)
+// Core K8s Tenant Provisioning Service (/v1/tenants) + API Gateway routing
+// to identity-service (/v1/auth, /v1/accounts, /v1/tenants/:slug/members)
+// and iot-broker-service (/v1/tenants/:slug/devices, /internal/devices/seen).
 // ---------------------------------------------------------------------------
 
 const express = require('express');
-const helmet = require('helmet');
-const cors = require('cors');
 const rateLimit = require('express-rate-limit');
 const path = require('path');
-const crypto = require('crypto');
 const config = require('./config');
 const logger = require('./logger');
 const { getDb } = require('./db');
 const { safeCompare } = require('./middleware/auth');
 
-const accountsRouter = require('./routes/accounts');
 const tenantsRouter = require('./routes/tenants');
-const membersRouter = require('./routes/members');
-const devicesRouter = require('./routes/devices');
+const { accountsRouter, membersRouter } = require('sift-identity-service');
+const { devicesRouter, handleInternalDevicesSeen, handleInternalObservers } = require('sift-iot-broker-service');
 
 const app = express();
 
@@ -32,42 +24,39 @@ const app = express();
 app.use((req, res, next) => {
   res.setHeader(
     'Content-Security-Policy',
-    "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; font-src 'self' https://fonts.gstatic.com; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
+    "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data:; connect-src 'self'; font-src 'self' https://fonts.gstatic.com; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
   );
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('Referrer-Policy', 'no-referrer');
   next();
 });
 
-// Global rate limiting (defense against brute-force / DoS)
 const globalLimiter = rateLimit({
   windowMs: config.rateLimitWindowMs,
   max: config.rateLimitMaxRequests,
   standardHeaders: true,
   legacyHeaders: false,
   skip: (req) => {
-    // Never rate-limit static assets, icons, health probes, or local loopback in dev
     const isLoopback = req.ip === '127.0.0.1' || req.ip === '::1' || req.ip === '::ffff:127.0.0.1' || req.hostname === 'localhost';
     if (process.env.NODE_ENV !== 'production' && isLoopback) {
       return true;
     }
     return (
       req.path.startsWith('/js/') ||
-      req.path.startsWith('/tools/') ||
       req.path.endsWith('.css') ||
       req.path.endsWith('.js') ||
       req.path.endsWith('.jpg') ||
       req.path.endsWith('.png') ||
       req.path.endsWith('.ico') ||
       req.path === '/' ||
-      req.path === '/health'
+      req.path === '/health' ||
+      req.path === '/ready'
     );
   },
   message: { error: { code: 'RATE_LIMITED', message: 'Too many requests, please try again later.' } },
 });
 app.use(globalLimiter);
 
-// Specific rate limiter for auth endpoints (configurable, with dev loopback bypass)
 const authLimiter = rateLimit({
   windowMs: 60 * 1000,
   max: config.loginRateLimitMaxRequests || 30,
@@ -79,10 +68,8 @@ const authLimiter = rateLimit({
   message: { error: { code: 'RATE_LIMITED', message: 'Too many login attempts. Please wait 1 minute before trying again.' } },
 });
 
-// JSON body parser with size limit
 app.use(express.json({ limit: '256kb' }));
 
-// Request logging middleware with secret redaction (P4 / Section 11)
 app.use((req, res, next) => {
   const start = Date.now();
   res.on('finish', () => {
@@ -98,21 +85,26 @@ app.use((req, res, next) => {
   next();
 });
 
-// Serve static web portal at GET /
+// Serve static web portal at GET / (Task 7: /tools is no longer publicly hosted)
 const publicDir = path.join(__dirname, '..', 'public');
 app.use(express.static(publicDir));
 
-// Also serve tools directory statically at /tools
-const toolsDir = path.join(__dirname, '..', '..', '..', 'tools', 'simulator');
-app.use('/tools', express.static(toolsDir));
-
-// Health check endpoints
+// Health & readiness probes
 app.get('/health', (req, res) => {
   res.json({
     status: 'ok',
     service: 'cloudnest-provisioning-api',
     timestamp: new Date().toISOString(),
   });
+});
+
+app.get('/ready', (req, res) => {
+  try {
+    getDb().prepare('SELECT 1').get();
+    res.json({ status: 'ready', service: 'cloudnest-provisioning-api' });
+  } catch (err) {
+    res.status(503).json({ status: 'not_ready', error: err.message });
+  }
 });
 
 app.get('/v1/health', (req, res) => {
@@ -123,7 +115,7 @@ app.get('/v1/health', (req, res) => {
   });
 });
 
-// GET /v1/config (NEW in Phase 6C, public, no auth)
+// GET /v1/config (public)
 app.get('/v1/config', (req, res) => {
   const warnings = [];
   const host = config.mqttPublicHost || '';
@@ -152,28 +144,35 @@ app.get('/v1/plans', (req, res) => {
   res.json({ plans: config.plans });
 });
 
-// Top-level aliases for Phase 6C auth and user
+// Identity Service routes (mounted via API gateway)
 app.use('/v1/auth/login', authLimiter);
 app.use('/v1/auth', accountsRouter);
 app.use('/v1/accounts/login', authLimiter);
 app.use('/v1/accounts', accountsRouter);
+app.use('/api/v1/auth', accountsRouter);
+app.use('/api/v1/accounts', accountsRouter);
+app.use('/api/accounts', accountsRouter);
 
-// OTP verification routes (2FA — no auth limiter, separate from login)
 app.post('/v1/auth/verify-otp', (req, res, next) => { req.url = '/verify-otp'; accountsRouter(req, res, next); });
 app.post('/v1/auth/resend-otp', (req, res, next) => { req.url = '/resend-otp'; accountsRouter(req, res, next); });
 
-// GET /v1/me alias pointing to accountsRouter /me
 app.get('/v1/me', (req, res, next) => {
   req.url = '/me';
   accountsRouter(req, res, next);
 });
 
-// Tenant routes
+// Tenant Provisioning routes (owned by this service) + Gateway routes to Members & Devices
 app.use('/v1/tenants', tenantsRouter);
 app.use('/v1/tenants', membersRouter);
 app.use('/v1/tenants', devicesRouter);
 
-// Auth middleware for internal endpoints
+app.use('/api/v1/tenants', tenantsRouter);
+app.use('/api/v1/tenants', membersRouter);
+app.use('/api/v1/tenants', devicesRouter);
+app.use('/api/tenants', tenantsRouter);
+app.use('/api/members', membersRouter);
+app.use('/api/devices', devicesRouter);
+
 function requireInternalToken(req, res, next) {
   const token = req.headers['x-internal-token'];
   if (!token || !safeCompare(token, config.internalToken)) {
@@ -185,85 +184,8 @@ function requireInternalToken(req, res, next) {
   next();
 }
 
-// Handler for /internal/devices/seen (Phase 6C section 6.3)
-function handleInternalDevicesSeen(req, res) {
-  const { reports } = req.body || {};
-  if (!Array.isArray(reports)) {
-    return res.status(400).json({
-      error: { code: 'VALIDATION', message: 'reports must be an array' },
-    });
-  }
-
-  const db = getDb();
-  let accepted = 0;
-  let rejected = 0;
-
-  const updateStmt = db.prepare(`
-    UPDATE devices
-    SET first_connected_at = COALESCE(first_connected_at, ?),
-        last_seen_at = ?,
-        last_value_json = ?
-    WHERE id = ?
-  `);
-
-  const lookupStmt = db.prepare(`
-    SELECT d.id
-    FROM devices d
-    JOIN tenants t ON d.tenant_id = t.id
-    WHERE t.slug = ? AND (d.id = ? OR d.mg_client_id = ?) AND d.status = 'active'
-  `);
-
-  const runBatch = db.transaction((items) => {
-    for (const report of items) {
-      const { tenantSlug, deviceId, ts, values } = report || {};
-      if (!tenantSlug || !deviceId) {
-        rejected++;
-        continue;
-      }
-
-      const found = lookupStmt.get(tenantSlug, deviceId, deviceId);
-      if (!found) {
-        rejected++;
-        continue;
-      }
-
-      const reportTime = ts || new Date().toISOString();
-      let valueJson = null;
-      if (values) {
-        try {
-          valueJson = JSON.stringify(values).slice(0, 2048);
-        } catch {
-          valueJson = null;
-        }
-      }
-
-      updateStmt.run(reportTime, reportTime, valueJson, found.id);
-      accepted++;
-    }
-  });
-
-  try {
-    runBatch(reports);
-    res.json({ accepted, rejected });
-  } catch (err) {
-    logger.error('Failed to process device seen reports', { error: err.message });
-    res.status(500).json({ error: { code: 'INTERNAL_ERROR', message: 'Database batch update failed' } });
-  }
-}
-
-// Mount internal endpoints on main app (for local testing convenience)
 app.post('/internal/devices/seen', requireInternalToken, handleInternalDevicesSeen);
-
-// Fallback for internal observers endpoint (for tb-bridge convenience)
-app.get('/internal/observers', (req, res) => {
-  const db = getDb();
-  const observers = db.prepare(`
-    SELECT slug, mg_workspace_id as workspaceId, mg_chan_telemetry as telemetryChannelId, mg_chan_commands as commandChannelId
-    FROM tenants
-    WHERE status = 'active' AND mg_chan_telemetry IS NOT NULL
-  `).all();
-  res.json({ observers });
-});
+app.get('/internal/observers', handleInternalObservers);
 
 // 404 handler
 app.use((req, res) => {
@@ -283,35 +205,17 @@ app.use((err, req, res, next) => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// Internal API Server — Port 8081 (Phase 6C section 4.4 & 6.3)
-// ---------------------------------------------------------------------------
-// Listens on a dedicated internal port for cluster-internal communication
-// (tb-bridge device seen reports). Requires X-Internal-Token header.
-// ---------------------------------------------------------------------------
+// Internal API Server — Port 8081
 const internalApp = express();
 internalApp.use(express.json({ limit: '256kb' }));
 
-// Internal health check
 internalApp.get('/internal/health', (req, res) => {
   res.json({ status: 'ok', service: 'cloudnest-internal-api', port: config.internalPort });
 });
 
-// Internal observers endpoint
-internalApp.get('/internal/observers', requireInternalToken, (req, res) => {
-  const db = getDb();
-  const observers = db.prepare(`
-    SELECT slug, mg_workspace_id as workspaceId, mg_chan_telemetry as telemetryChannelId, mg_chan_commands as commandChannelId
-    FROM tenants
-    WHERE status = 'active' AND mg_chan_telemetry IS NOT NULL
-  `).all();
-  res.json({ observers });
-});
-
-// POST /internal/devices/seen (Phase 6C section 6.3)
+internalApp.get('/internal/observers', requireInternalToken, handleInternalObservers);
 internalApp.post('/internal/devices/seen', requireInternalToken, handleInternalDevicesSeen);
 
-// Initialize DB schema on start
 try {
   getDb();
   logger.info('Database initialized successfully');
@@ -320,8 +224,7 @@ try {
   process.exit(1);
 }
 
-// Start main and internal servers
-if (process.env.NODE_ENV !== 'test') {
+if (require.main === module && process.env.NODE_ENV !== 'test') {
   app.listen(config.port, () => {
     logger.info(`CloudNest Provisioning API listening on port ${config.port}`);
   });
@@ -330,12 +233,11 @@ if (process.env.NODE_ENV !== 'test') {
     logger.info(`CloudNest Internal API listening on port ${config.internalPort}`);
   });
 
-  // Live MQTT telemetry observer (enables real-time status updates in local dev and cluster)
   if (config.mqttUrl) {
     try {
       const mqtt = require('mqtt');
       const localMqtt = mqtt.connect(config.mqttUrl, {
-        clientId: 'provisioning-api-telemetry-observer',
+        clientId: `provisioning-api-telemetry-observer-${process.pid}`,
         reconnectPeriod: 3000,
       });
 
@@ -368,7 +270,7 @@ if (process.env.NODE_ENV !== 'test') {
             `).run(now, now, payload.toString().slice(0, 2048), found.id);
             logger.info('Device telemetry recorded via MQTT observer', { deviceId: found.id, mgClientId: devId });
           }
-        } catch (err) {
+        } catch {
           // ignore non-json
         }
       });
@@ -383,4 +285,3 @@ if (process.env.NODE_ENV !== 'test') {
 }
 
 module.exports = { app, internalApp };
-

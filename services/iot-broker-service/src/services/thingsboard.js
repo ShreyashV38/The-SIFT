@@ -1,15 +1,15 @@
 // ---------------------------------------------------------------------------
-// CloudNest — ThingsBoard CE API Client
+// The-SIFT — ThingsBoard CE API Client (iot-broker-service)
 // ---------------------------------------------------------------------------
 // Manages device registrations in ThingsBoard for platform-wide monitoring.
 // FR-07: platform admins view telemetry in ThingsBoard
-// The tb-bridge service (separate) forwards MQTT telemetry to TB.
-// This client only handles device provisioning in TB.
 // ---------------------------------------------------------------------------
 
 const crypto = require('crypto');
 const config = require('../config');
-const logger = require('../logger');
+const { createServiceLogger } = require('@sift/common');
+
+const logger = createServiceLogger(config.serviceName);
 
 let tbToken = null;
 let tbTokenExpiry = 0;
@@ -93,7 +93,6 @@ async function getTbToken() {
   return tbToken;
 }
 
-// Create a device in ThingsBoard (for telemetry visualization)
 async function createDevice(tenantSlug, deviceName) {
   const token = await getTbToken();
   const device = await fetchJson('/api/device', {
@@ -112,16 +111,13 @@ async function createDevice(tenantSlug, deviceName) {
   return device;
 }
 
-// Get device credentials (access token) from ThingsBoard
 async function getDeviceCredentials(tbDeviceId) {
   const token = await getTbToken();
-  const creds = await fetchJson(`/api/device/${tbDeviceId}/credentials`, {
+  return fetchJson(`/api/device/${tbDeviceId}/credentials`, {
     headers: { 'X-Authorization': `Bearer ${token}` },
   });
-  return creds;
 }
 
-// Delete a device from ThingsBoard
 async function deleteDevice(tbDeviceId) {
   const token = await getTbToken();
   await fetchJson(`/api/device/${tbDeviceId}`, {

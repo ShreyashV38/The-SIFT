@@ -4,6 +4,7 @@
   "description": "Shared utilities for The-SIFT microservices",
   "main": "src/index.js",
   "dependencies": {
+    "better-sqlite3": "^11.7.0",
     "ioredis": "^5.4.2",
     "jsonwebtoken": "^9.0.2",
     "pg": "^8.13.1",

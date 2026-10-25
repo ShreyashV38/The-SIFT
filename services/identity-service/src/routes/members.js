@@ -1,5 +1,5 @@
 // ---------------------------------------------------------------------------
-// CloudNest — Members Routes (Phase 6C + Email Notifications)
+// The-SIFT — Members Routes (identity-service)
 // ---------------------------------------------------------------------------
 // FR-13: member roles (owner, admin, member) with role checks
 // FR-12: seat limits enforced when adding members
@@ -8,17 +8,18 @@
 // ---------------------------------------------------------------------------
 
 const { Router } = require('express');
+const { createAuth, createRbac, createServiceLogger } = require('@sift/common');
 const { getDb } = require('../db');
-const { requireAuth } = require('../middleware/auth');
-const { requireRole, ROLE_RANK } = require('../middleware/rbac');
 const config = require('../config');
-const logger = require('../logger');
 const emailService = require('../services/email');
+
+const logger = createServiceLogger(config.serviceName);
+const { requireAuth } = createAuth(config);
+const { requireRole } = createRbac({ getDbFn: getDb, logger });
 
 const router = Router();
 
 // GET /v1/tenants/:slug/members
-// Any member can list members
 router.get('/:slug/members', requireAuth, requireRole('member'), (req, res) => {
   const db = getDb();
   const members = db.prepare(`
@@ -34,8 +35,6 @@ router.get('/:slug/members', requireAuth, requireRole('member'), (req, res) => {
 });
 
 // POST /v1/tenants/:slug/members
-// Add a member directly. Requires admin or owner role.
-// Body: { email, role? }
 router.post('/:slug/members', requireAuth, requireRole('admin'), (req, res) => {
   const { email, role = 'member' } = req.body || {};
 
@@ -52,7 +51,6 @@ router.post('/:slug/members', requireAuth, requireRole('admin'), (req, res) => {
     });
   }
 
-  // Only owners can add admins
   if (cleanRole === 'admin' && req.membership.role !== 'owner') {
     return res.status(403).json({
       error: { code: 'FORBIDDEN', message: 'Only owners can add admins' },
@@ -61,13 +59,11 @@ router.post('/:slug/members', requireAuth, requireRole('admin'), (req, res) => {
 
   const db = getDb();
 
-  // Look up target account
   const account = db.prepare(
-    "SELECT id, email, display_name FROM accounts WHERE email = ? AND status = 'active'"
+    "SELECT id, email, display_name FROM accounts WHERE lower(email) = lower(?) AND status = 'active'"
   ).get(email.trim().toLowerCase());
 
   if (!account) {
-    // Send invite-to-register email to the unknown address (non-blocking)
     const adder = db.prepare('SELECT display_name FROM accounts WHERE id = ?').get(req.user.accountId);
     const portalUrl = `${req.protocol}://${req.get('host')}/`;
     emailService.sendInviteToRegister(
@@ -85,7 +81,6 @@ router.post('/:slug/members', requireAuth, requireRole('admin'), (req, res) => {
     });
   }
 
-  // Check if already a member
   const existingMembership = db.prepare(
     'SELECT id, status FROM memberships WHERE tenant_id = ? AND account_id = ?'
   ).get(req.tenant.id, account.id);
@@ -96,7 +91,6 @@ router.post('/:slug/members', requireAuth, requireRole('admin'), (req, res) => {
     });
   }
 
-  // Enforce seat limits (FR-12)
   const tenant = db.prepare('SELECT plan FROM tenants WHERE id = ?').get(req.tenant.id);
   const planLimits = config.plans[tenant.plan] || { seats: 1 };
 
@@ -114,14 +108,13 @@ router.post('/:slug/members', requireAuth, requireRole('admin'), (req, res) => {
     });
   }
 
-  // Add or reactivate membership
   if (existingMembership && existingMembership.status === 'removed') {
     db.prepare(
       "UPDATE memberships SET status = 'active', role = ?, joined_at = datetime('now') WHERE id = ?"
     ).run(cleanRole, existingMembership.id);
   } else {
     db.prepare(
-      'INSERT INTO memberships (tenant_id, account_id, role) VALUES (?, ?, ?)'
+      'INSERT INTO memberships (tenant_id, account_id, role) VALUES (?, ?, ?) ON CONFLICT (tenant_id, account_id) DO NOTHING'
     ).run(req.tenant.id, account.id, cleanRole);
   }
 
@@ -132,7 +125,6 @@ router.post('/:slug/members', requireAuth, requireRole('admin'), (req, res) => {
     addedBy: req.user.accountId,
   });
 
-  // Send "member added" email notification (non-blocking)
   const adder = db.prepare('SELECT display_name FROM accounts WHERE id = ?').get(req.user.accountId);
   emailService.sendMemberAdded(
     account.email,
@@ -153,7 +145,6 @@ router.post('/:slug/members', requireAuth, requireRole('admin'), (req, res) => {
   });
 });
 
-// Helper for member role update
 function handleMemberRoleUpdate(req, res) {
   const targetId = parseInt(req.params.accountId, 10);
   const { role } = req.body || {};
@@ -197,7 +188,6 @@ function handleMemberRoleUpdate(req, res) {
     newRole: cleanRole,
   });
 
-  // Send role change email (non-blocking)
   const targetAccount = db.prepare('SELECT email, display_name FROM accounts WHERE id = ?').get(targetMembership.account_id);
   if (targetAccount) {
     emailService.sendRoleChanged(targetAccount.email, targetAccount.display_name, req.tenant.display_name, cleanRole).catch(() => {});
@@ -208,7 +198,7 @@ function handleMemberRoleUpdate(req, res) {
 
 // PUT /v1/tenants/:slug/members/:accountId/role
 router.put('/:slug/members/:accountId/role', requireAuth, requireRole('owner'), handleMemberRoleUpdate);
-// PATCH /v1/tenants/:slug/members/:accountId (Phase 6C)
+// PATCH /v1/tenants/:slug/members/:accountId
 router.patch('/:slug/members/:accountId', requireAuth, requireRole('owner'), handleMemberRoleUpdate);
 
 // DELETE /v1/tenants/:slug/members/:accountId
@@ -232,28 +222,24 @@ router.delete('/:slug/members/:accountId', requireAuth, requireRole('admin'), (r
     });
   }
 
-  // Cannot remove yourself
   if (targetMembership.account_id === req.user.accountId) {
     return res.status(400).json({
       error: { code: 'VALIDATION', message: 'Cannot remove yourself. Use transfer ownership first.' },
     });
   }
 
-  // Only owner can remove admins
   if (targetMembership.role === 'admin' && req.membership.role !== 'owner') {
     return res.status(403).json({
       error: { code: 'FORBIDDEN', message: 'Only owners can remove admins' },
     });
   }
 
-  // Cannot remove the owner (FR-13: last owner protection)
   if (targetMembership.role === 'owner') {
     return res.status(400).json({
       error: { code: 'LAST_OWNER', message: 'Cannot remove the owner. Transfer ownership first.' },
     });
   }
 
-  // Soft-remove the membership
   db.prepare("UPDATE memberships SET status = 'removed' WHERE id = ?").run(targetMembership.id);
 
   logger.info('Member removed', {
@@ -262,7 +248,6 @@ router.delete('/:slug/members/:accountId', requireAuth, requireRole('admin'), (r
     removedBy: req.user.accountId,
   });
 
-  // Send removal notification email (non-blocking)
   const removedAccount = db.prepare('SELECT email, display_name FROM accounts WHERE id = ?').get(targetMembership.account_id);
   if (removedAccount) {
     emailService.sendMemberRemoved(removedAccount.email, removedAccount.display_name, req.tenant.display_name).catch(() => {});
@@ -308,7 +293,6 @@ router.post('/:slug/transfer-ownership', requireAuth, requireRole('owner'), (req
     to: accountId,
   });
 
-  // Email both old and new owner (non-blocking)
   const oldOwner = db.prepare('SELECT email, display_name FROM accounts WHERE id = ?').get(req.user.accountId);
   const newOwnerAccount = db.prepare('SELECT email, display_name FROM accounts WHERE id = ?').get(accountId);
   if (newOwnerAccount) {
@@ -322,4 +306,4 @@ router.post('/:slug/transfer-ownership', requireAuth, requireRole('owner'), (req
 });
 
 module.exports = router;
-
+module.exports.router = router;
