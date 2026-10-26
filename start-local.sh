@@ -100,7 +100,7 @@ if $DOCKER_RUNNING && $HAS_KUBECTL && kubectl cluster-info &>/dev/null; then
         done
     fi
 
-    for dir in magistrala thingsboard; do
+    for dir in magistrala; do
         if [ -d "./deploy/$dir" ]; then
             for f in ./deploy/$dir/*.yaml; do
                 [ -f "$f" ] && kubectl apply -f "$f" 2>/dev/null || true
@@ -108,10 +108,12 @@ if $DOCKER_RUNNING && $HAS_KUBECTL && kubectl cluster-info &>/dev/null; then
         fi
     done
 
-    echo "  Setting up cluster port-forwards (0.0.0.0)..."
+    # Remove any duplicate K8s thingsboard StatefulSet or 8080 port-forward so Docker sift-thingsboard can bind 8080 cleanly
+    kubectl delete statefulset thingsboard -n observability >/dev/null 2>&1 || true
+    pkill -f "port-forward.*8080" 2>/dev/null || true
+
+    echo "  Setting up cluster MQTT port-forward (0.0.0.0:1883)..."
     kubectl port-forward --address 0.0.0.0 -n platform svc/magistrala-mqtt 1883:1883 &>/dev/null &
-    PF_PIDS+=($!)
-    kubectl port-forward --address 0.0.0.0 -n observability svc/thingsboard 8080:8080 &>/dev/null &
     PF_PIDS+=($!)
     sleep 2
 fi
@@ -128,13 +130,25 @@ if $DOCKER_RUNNING; then
     fi
 
     # 2. ThingsBoard CE (Port 8080 & 9090 -> container 9090, Port 1884 -> container 1883)
-    TB_PORT_OK=$(docker port sift-thingsboard 9090 2>/dev/null || true)
-    if [ -z "$TB_PORT_OK" ]; then
+    pkill -f "port-forward.*8080" 2>/dev/null || true
+    TB_EXISTS=$(docker ps -a -q --filter "name=^/sift-thingsboard$" 2>/dev/null || true)
+    TB_RUNNING=$(docker ps -q --filter "name=^/sift-thingsboard$" 2>/dev/null || true)
+    TB_PORT_CFG=$(docker inspect -f '{{json .HostConfig.PortBindings}}' sift-thingsboard 2>/dev/null | grep "8080" || true)
+    if [ -n "$TB_EXISTS" ] && [ -n "$TB_PORT_CFG" ]; then
+        if [ -z "$TB_RUNNING" ]; then
+            echo -e "${GREEN}  Resuming existing ThingsBoard CE container on ports 8080 & 9090...${NC}"
+            docker start sift-thingsboard >/dev/null 2>&1 || true
+        else
+            echo -e "${GREEN}  ThingsBoard CE active on ports 8080 & 9090.${NC}"
+        fi
+    else
         echo -e "${GREEN}  Starting ThingsBoard CE container on ports 8080 & 9090 (MQTT 1884)...${NC}"
         docker rm -f sift-thingsboard 2>/dev/null || true
-        docker run -d --name sift-thingsboard -p 8080:9090 -p 9090:9090 -p 1884:1883 -e TB_QUEUE_TYPE=in-memory thingsboard/tb-postgres:3.6.2 >/dev/null 2>&1 || true
-    else
-        echo -e "${GREEN}  ThingsBoard CE active on ports 8080 & 9090.${NC}"
+        docker run -d --name sift-thingsboard --restart unless-stopped \
+            -p 8080:9090 -p 9090:9090 -p 1884:1883 \
+            -e TB_QUEUE_TYPE=in-memory \
+            -e JAVA_OPTS="-Xms256M -Xmx512M" \
+            thingsboard/tb-postgres:3.6.2
     fi
 
     # 3. Home Assistant (Port 8123, pre-seeded with onboarding bypass & MQTT auto-discovery)

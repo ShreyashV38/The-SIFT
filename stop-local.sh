@@ -42,7 +42,8 @@ echo -e "${GREEN}  SIFT Node.js processes stopped.${NC}"
 echo ""
 echo -e "${YELLOW}[2/3] Stopping Docker containers...${NC}"
 if command -v docker &>/dev/null; then
-    docker rm -f sift-mqtt cloudnest-mqtt sift-thingsboard sift-ha 2>/dev/null || true
+    docker stop sift-thingsboard 2>/dev/null || true
+    docker rm -f sift-mqtt cloudnest-mqtt sift-ha 2>/dev/null || true
     HA_CONTAINERS=$(docker ps -a -q --filter "name=^/ha-" 2>/dev/null || true)
     if [ -n "$HA_CONTAINERS" ]; then
         docker rm -f $HA_CONTAINERS 2>/dev/null || true

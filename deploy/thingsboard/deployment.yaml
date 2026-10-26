@@ -9,7 +9,7 @@ spec:
   storageClassName: local-path
   resources:
     requests:
-      storage: 2Gi
+      storage: 4Gi
 ---
 apiVersion: apps/v1
 kind: StatefulSet
@@ -41,6 +41,8 @@ spec:
             - name: mqtt
               containerPort: 1883
           env:
+            - name: HTTP_BIND_PORT
+              value: "8080"
             - name: TB_QUEUE_TYPE
               value: "in-memory"
             - name: JAVA_OPTS
