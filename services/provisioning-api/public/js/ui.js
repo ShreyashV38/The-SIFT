@@ -61,7 +61,8 @@ export function resolveMqttHost(configuredHost) {
     return host;
   }
   const clean = configuredHost.trim();
-  if (!clean || clean === 'host.wokwi.internal') {
+  const loopbackHosts = ['host.wokwi.internal', 'localhost', '127.0.0.1', '0.0.0.0', '::1', '[::1]'];
+  if (!clean || loopbackHosts.includes(clean.toLowerCase())) {
     return host;
   }
   return clean;
@@ -441,17 +442,23 @@ const deviceName = device.name || 'Smart Device';
 const deviceKind = device.kind || 'sensor';
 const intervalSec = cfg.publishIntervalSeconds || 10;
 
+const LOOPBACK_HOSTS = ['localhost', '127.0.0.1', '0.0.0.0', '::1', '[::1]'];
+const cfgHost = (mqttCfg.host || '').trim();
+const brokerHost = (!cfgHost || LOOPBACK_HOSTS.includes(cfgHost.toLowerCase()))
+  ? '${defaultBrokerHost}'
+  : cfgHost;
+const brokerPort = mqttCfg.port || 1883;
+
 console.log('========================================================');
 console.log(\` The-SIFT Smart Device: \${deviceName} (\${deviceKind})\`);
-console.log(\` Broker:    \${mqttCfg.host}:\${mqttCfg.port}\`);
+console.log(\` Broker:    \${brokerHost}:\${brokerPort}\`);
 console.log(\` Device ID: \${deviceId}\`);
 console.log('========================================================\\n');
 
 let currentTemp = 24.0;
 let switchState = 'OFF';
 
-const brokerHost = mqttCfg.host || '${defaultBrokerHost}';
-const brokerUrl = \`\${mqttCfg.tls ? 'mqtts' : 'mqtt'}://\${brokerHost}:\${mqttCfg.port || 1883}\`;
+const brokerUrl = \`\${mqttCfg.tls ? 'mqtts' : 'mqtt'}://\${brokerHost}:\${brokerPort}\`;
 console.log(\`Connecting to Cloud MQTT endpoint \${brokerUrl}...\`);
 
 const client = mqtt.connect(brokerUrl, {
