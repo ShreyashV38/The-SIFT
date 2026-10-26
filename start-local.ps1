@@ -322,7 +322,7 @@ $tbRunning = Test-NetConnection -ComputerName 127.0.0.1 -Port 9090 -InformationL
 if (-not $tbRunning) {
     Write-Host "  Starting ThingsBoard CE container on port 9090..." -ForegroundColor Yellow
     docker rm -f sift-thingsboard 2>$null | Out-Null
-    docker run -d --name sift-thingsboard -p 9090:9090 -p 1884:1883 -e TB_QUEUE_TYPE=in-memory thingsboard/tb-postgres:3.6.2 2>$null | Out-Null
+    docker run -d --name sift-thingsboard -p 8080:9090 -p 9090:9090 -p 1884:1883 -e TB_QUEUE_TYPE=in-memory thingsboard/tb-postgres:3.6.2 2>$null | Out-Null
 } else {
     Write-Host "  ThingsBoard active on port 9090." -ForegroundColor Green
 }

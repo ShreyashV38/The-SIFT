@@ -43,12 +43,29 @@ export function toggleTheme() {
 }
 
 // Dynamic Cloud Domain & Endpoint Resolution
+const LOOPBACK_AND_LOCAL_HOSTS = ['host.wokwi.internal', 'localtest.me', 'localhost', '127.0.0.1', '0.0.0.0', '::1', '[::1]'];
+
+function isLocalOrLoopbackHost(h) {
+  if (!h || typeof h !== 'string') return true;
+  const lower = h.trim().toLowerCase();
+  return !lower || LOOPBACK_AND_LOCAL_HOSTS.includes(lower) || lower.endsWith('.localtest.me');
+}
+
+function isIpAddress(h) {
+  if (!h || typeof h !== 'string') return false;
+  const clean = h.trim();
+  return /^(\d{1,3}\.){3}\d{1,3}$/.test(clean) || clean.includes(':');
+}
+
 export function resolveCloudDomain(configuredDomain) {
   const host = (typeof window !== 'undefined' && window.location && window.location.hostname)
     ? window.location.hostname
     : '';
   if (configuredDomain && typeof configuredDomain === 'string' && configuredDomain.trim()) {
-    return configuredDomain.trim();
+    const clean = configuredDomain.trim();
+    if (!isLocalOrLoopbackHost(clean) || isLocalOrLoopbackHost(host)) {
+      return clean;
+    }
   }
   return host || 'sift-cloud.io';
 }
@@ -61,19 +78,46 @@ export function resolveMqttHost(configuredHost) {
     return host;
   }
   const clean = configuredHost.trim();
-  const loopbackHosts = ['host.wokwi.internal', 'localhost', '127.0.0.1', '0.0.0.0', '::1', '[::1]'];
-  if (!clean || loopbackHosts.includes(clean.toLowerCase())) {
+  if (!clean || isLocalOrLoopbackHost(clean)) {
     return host;
   }
   return clean;
 }
 
 export function resolveHaUrl(slug, tenantUrl, configuredDomain) {
-  if (tenantUrl && typeof tenantUrl === 'string' && tenantUrl.trim()) {
-    return tenantUrl.trim();
+  const host = (typeof window !== 'undefined' && window.location && window.location.hostname)
+    ? window.location.hostname
+    : '';
+  const protocol = (typeof window !== 'undefined' && window.location && window.location.protocol)
+    ? window.location.protocol
+    : 'http:';
+
+  // When accessed over a public or LAN IP (e.g. AWS EC2 13.233.82.179),
+  // <slug>.localtest.me or <slug>.<ip> cannot resolve in browser DNS.
+  // Point directly to http://<ip>:8123 where Home Assistant is listening.
+  if (host && isIpAddress(host) && !isLocalOrLoopbackHost(host)) {
+    return `${protocol}//${host}:8123`;
   }
+
+  if (tenantUrl && typeof tenantUrl === 'string' && tenantUrl.trim()) {
+    const cleanUrl = tenantUrl.trim();
+    if (host && !isLocalOrLoopbackHost(host)) {
+      try {
+        const parsed = new URL(cleanUrl);
+        if (isLocalOrLoopbackHost(parsed.hostname)) {
+          const portPart = parsed.port ? `:${parsed.port}` : ':8123';
+          return `${parsed.protocol}//${slug}.${host}${portPart}`;
+        }
+      } catch (_) {}
+    }
+    return cleanUrl;
+  }
+
   const domain = resolveCloudDomain(configuredDomain);
-  return `https://${slug}.${domain}`;
+  if (isIpAddress(domain) && !isLocalOrLoopbackHost(domain)) {
+    return `${protocol}//${domain}:8123`;
+  }
+  return `http://${slug}.${domain}:8123`;
 }
 
 export function formatTierBadge(plan) {

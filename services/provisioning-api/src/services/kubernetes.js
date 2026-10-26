@@ -35,12 +35,12 @@ function checkK8s() {
 // Helper to launch background kubectl port-forward for a tenant
 function startPortForward(slug, namespace, localPort = 8123) {
   try {
-    if (activePortForwards.has(slug)) {
-      try { activePortForwards.get(slug).kill(); } catch (_) {}
-      activePortForwards.delete(slug);
+    for (const [existingSlug, proc] of activePortForwards.entries()) {
+      try { proc.kill(); } catch (_) {}
+      activePortForwards.delete(existingSlug);
     }
 
-    const pf = spawn('kubectl', ['port-forward', '-n', namespace, 'svc/ha', `${localPort}:8123`], {
+    const pf = spawn('kubectl', ['port-forward', '--address', '0.0.0.0', '-n', namespace, 'svc/ha', `${localPort}:8123`], {
       detached: true,
       stdio: 'ignore',
     });
@@ -129,6 +129,21 @@ function deployTenantDockerFallback(slug, haPasswordHash, tenantHaPassword = con
   try {
     execSync('docker --version', { stdio: 'ignore' });
 
+    // If the shared pre-seeded sift-ha container is already running on 8123, reuse it
+    const existingHa = execSync('docker ps -q --filter "name=^/sift-ha$"', { encoding: 'utf8' }).trim();
+    if (existingHa) {
+      logger.info('Reusing active pre-seeded sift-ha container on port 8123', { slug });
+      return {
+        namespace: `docker-${slug}`,
+        releaseName: 'sift-ha',
+        url: `http://${slug}.${config.domain}:${localPort}`,
+        haCredentials: {
+          username: config.haUsername,
+          password: tenantHaPassword,
+        },
+      };
+    }
+
     // Clean up any stale container with the same name
     try { execSync(`docker rm -f ${containerName}`, { stdio: 'ignore' }); } catch (_) {}
 
@@ -143,7 +158,7 @@ function deployTenantDockerFallback(slug, haPasswordHash, tenantHaPassword = con
     return {
       namespace: `docker-${slug}`,
       releaseName: containerName,
-      url: `http://localhost:${localPort}`,
+      url: `http://${slug}.${config.domain}:${localPort}`,
       haCredentials: {
         username: config.haUsername,
         password: tenantHaPassword,
