@@ -5,6 +5,19 @@
 import { api } from '../api.js';
 import { toast, formatRelativeTime, renderSpinner } from '../ui.js';
 
+const LIVE_POLL_INTERVAL_MS = 3000;
+
+// Compact one-line summary of a device's latest telemetry payload
+function formatLatestReading(dev) {
+  const v = dev.lastValue;
+  if (!v || typeof v !== 'object') return '—';
+  const parts = [];
+  if (v.state !== undefined) parts.push(`<strong>${v.state}</strong>`);
+  if (v.temperature !== undefined) parts.push(`${v.temperature} °C`);
+  if (v.humidity !== undefined) parts.push(`${v.humidity} %`);
+  return parts.length ? parts.join(' · ') : '—';
+}
+
 export async function renderDevices(container, slug, router) {
   container.innerHTML = `
     <div style="text-align: center; padding: var(--space-4xl) var(--space-xl);">
@@ -35,13 +48,14 @@ export async function renderDevices(container, slug, router) {
   }
 
   let allDevices = devicesData.devices || [];
-  const usage = devicesData.usage || { count: 0, max: 10 };
+  let usage = devicesData.usage || { count: 0, max: 10 };
   const callerRole = tenantData.callerRole || 'member';
   const canManage = callerRole === 'admin' || callerRole === 'owner';
 
   let searchQuery = '';
   let statusFilter = 'all'; // 'all' | 'active' | 'revoked'
   let typeFilter = 'all';
+  let pollId = null;
 
   function filterDevices() {
     return allDevices.filter(dev => {
@@ -112,6 +126,7 @@ export async function renderDevices(container, slug, router) {
           </td>
           <td><span class="badge badge-role">${typeLabel}</span></td>
           <td>${statusPill}</td>
+          <td class="mono" style="font-size: 0.78125rem;">${formatLatestReading(dev)}</td>
           <td class="mono" style="font-size: 0.78125rem;">${addedDate}</td>
           <td style="text-align: right;">
             <div style="display: inline-flex; align-items: center; gap: 6px;">
@@ -135,6 +150,7 @@ export async function renderDevices(container, slug, router) {
         try {
           await api.revokeDevice(slug, id);
           toast(`Removed device "${name}"`, 'info');
+          if (pollId) clearInterval(pollId);
           renderDevices(container, slug, router);
         } catch (err) {
           toast(err.message, 'error');
@@ -144,12 +160,12 @@ export async function renderDevices(container, slug, router) {
   }
 
   container.innerHTML = `
-    <div>
+    <div id="devices-view">
       <div class="page-header">
         <div>
           <h1>Smart Devices</h1>
           <p style="margin-bottom: 0; font-size: 0.84375rem;">
-            Manage your household sensors and switches (<span class="mono">${usage.count} / ${usage.max}</span> devices used).
+            Manage your household sensors and switches (<span class="mono" id="devices-usage-count">${usage.count} / ${usage.max}</span> devices used).
           </p>
         </div>
 
@@ -217,6 +233,7 @@ export async function renderDevices(container, slug, router) {
                   <th>Device Name</th>
                   <th>Type</th>
                   <th>Status</th>
+                  <th>Latest Reading</th>
                   <th>Added On</th>
                   <th style="text-align: right;">Actions</th>
                 </tr>
@@ -258,4 +275,47 @@ export async function renderDevices(container, slug, router) {
 
     renderTableContent();
   }
+
+  // ---- Live polling: silently refresh device status & telemetry every 3 seconds ----
+  const routeHash = window.location.hash;
+  let lastSnapshot = JSON.stringify(allDevices);
+  let inFlight = false;
+
+  pollId = setInterval(async () => {
+    // Self-cancel if the view is gone (router also clears this on navigation)
+    if (window.location.hash !== routeHash || !container.querySelector('#devices-view')) {
+      clearInterval(pollId);
+      return;
+    }
+    if (inFlight || document.hidden) return;
+    inFlight = true;
+
+    try {
+      const res = await api.getDevices(slug);
+      if (window.location.hash !== routeHash) return;
+
+      const latestDevices = res.devices || [];
+      const snapshot = JSON.stringify(latestDevices);
+      if (snapshot === lastSnapshot) return;
+      lastSnapshot = snapshot;
+
+      // Layout differs between empty / non-empty states — rebuild the view in place
+      if ((allDevices.length === 0) !== (latestDevices.length === 0)) {
+        clearInterval(pollId);
+        renderDevices(container, slug, router);
+        return;
+      }
+
+      allDevices = latestDevices;
+      usage = res.usage || usage;
+      const usageEl = container.querySelector('#devices-usage-count');
+      if (usageEl) usageEl.textContent = `${usage.count} / ${usage.max}`;
+      renderTableContent();
+    } catch {
+      // Silent: keep showing the last known values and retry on the next tick
+    } finally {
+      inFlight = false;
+    }
+  }, LIVE_POLL_INTERVAL_MS);
+  router.registerInterval?.(pollId);
 }

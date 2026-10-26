@@ -119,23 +119,25 @@ client.on('offline', () => {
 function publishState() {
   if (!client.connected) return;
 
+  // Refresh simulated temperature (random walk clamped to 15.0 - 35.0 C)
+  const delta = (Math.floor(Math.random() * 11) - 5) / 10.0;
+  currentTemp = parseFloat((currentTemp + delta).toFixed(1));
+  if (currentTemp < 15.0) currentTemp = 15.0;
+  if (currentTemp > 35.0) currentTemp = 35.0;
+
   let payloadObj;
   if (deviceKind === 'switch') {
+    // SWITCH mode: Sends BOTH switch state AND sensor readings
     payloadObj = {
       id: deviceId,
       state: switchState,
+      temperature: currentTemp,
     };
   } else {
-    // Generate realistic fluctuating temperature (18.0 - 32.0 C)
-    const delta = (Math.floor(Math.random() * 11) - 5) / 10.0;
-    currentTemp = parseFloat((currentTemp + delta).toFixed(1));
-    if (currentTemp < 15.0) currentTemp = 15.0;
-    if (currentTemp > 35.0) currentTemp = 35.0;
-
+    // SENSOR mode: Sends ONLY sensor readings (no switch state)
     payloadObj = {
       id: deviceId,
       temperature: currentTemp,
-      humidity: Math.floor(45 + Math.random() * 15),
     };
   }
 

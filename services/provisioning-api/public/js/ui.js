@@ -208,6 +208,23 @@ export function renderSpinner() {
   return `<span class="spinner" aria-hidden="true"></span>`;
 }
 
+// Render the "Required Libraries" callout shown next to ESP32 firmware downloads
+export function renderRequiredLibrariesCallout(extraStyle = '') {
+  return `
+    <div class="banner banner-info" role="note" aria-label="Required Arduino libraries" style="display: block; ${extraStyle}">
+      <strong style="display: block; margin-bottom: 4px;">Required Libraries (install before compiling)</strong>
+      <div style="font-size: 0.8125rem; line-height: 1.7;">
+        <strong>Arduino IDE:</strong> Go to <em>Sketch &rarr; Include Library &rarr; Manage Libraries...</em>
+        (or click the <strong>Library Manager</strong> icon on the left sidebar), then search for and install:
+        <ul style="margin: 4px 0 0 1.25rem;">
+          <li><code>PubSubClient</code> <span style="color: var(--text-muted);">(by Nick O'Leary)</span></li>
+          <li><code>DHT sensor library for ESPx</code> <span style="color: var(--text-muted);">(by beegee_tokyo)</span></li>
+        </ul>
+      </div>
+    </div>
+  `;
+}
+
 // Generate ESP32 Arduino / PlatformIO Firmware Sketch
 export function generateSketch({
   deviceName,
@@ -237,6 +254,22 @@ export function generateSketch({
   const kind = escapeCString(deviceKind || 'sensor');
 
   return `// The-SIFT Cloud Hardware Firmware for: ${deviceName} (${deviceKind})
+/*
+ * ==========================================================================
+ *  REQUIRED LIBRARIES — install these in your IDE BEFORE compiling
+ * ==========================================================================
+ *  Arduino IDE:
+ *    Sketch -> Include Library -> Manage Libraries...
+ *    (or click the Library Manager icon in the left sidebar),
+ *    then search for and install:
+ *      1. PubSubClient                 (by Nick O'Leary)
+ *      2. DHT sensor library for ESPx  (by beegee_tokyo)
+ *
+ *  Telemetry payload depends on DEVICE_KIND:
+ *    "switch" -> {"id":"<DEVICE_ID>","state":"ON|OFF","temperature":24.5}
+ *    "sensor" -> {"id":"<DEVICE_ID>","temperature":24.5}
+ * ==========================================================================
+ */
 #include <WiFi.h>
 #include <PubSubClient.h>
 
@@ -300,14 +333,22 @@ void onMessage(char* topic, byte* payload, unsigned int length) {
 
 void publishState() {
   char body[160];
+
+  // Refresh sensor value simulation (or read real DHT22 sensor here)
+  temperature += ((int)random(-5, 6)) / 10.0f;
+  if (temperature < 15) temperature = 15;
+  if (temperature > 35) temperature = 35;
+
   if (strcmp(DEVICE_KIND, "switch") == 0) {
-    snprintf(body, sizeof(body), "{\\"id\\":\\"%s\\",\\"state\\":\\"%s\\"}", DEVICE_ID, switchOn ? "ON" : "OFF");
+    // SWITCH mode: Sends BOTH switch state AND sensor readings
+    snprintf(body, sizeof(body), "{\\"id\\":\\"%s\\",\\"state\\":\\"%s\\",\\"temperature\\":%.1f}", 
+             DEVICE_ID, switchOn ? "ON" : "OFF", temperature);
   } else {
-    temperature += ((int)random(-5, 6)) / 10.0f;
-    if (temperature < 15) temperature = 15;
-    if (temperature > 35) temperature = 35;
-    snprintf(body, sizeof(body), "{\\"id\\":\\"%s\\",\\"temperature\\":%.1f}", DEVICE_ID, temperature);
+    // SENSOR mode: Sends ONLY sensor readings (no button state)
+    snprintf(body, sizeof(body), "{\\"id\\":\\"%s\\",\\"temperature\\":%.1f}", 
+             DEVICE_ID, temperature);
   }
+
   bool ok = mqtt.publish(TOPIC_TELEMETRY, body);
   Serial.printf("Published (%s): %s\\n", ok ? "ok" : "FAILED", body);
 }
@@ -462,22 +503,25 @@ client.on('offline', () => {
 function publishState() {
   if (!client.connected) return;
 
+  // Refresh simulated temperature (random walk clamped to 15.0 - 35.0 C)
+  const delta = (Math.floor(Math.random() * 11) - 5) / 10.0;
+  currentTemp = parseFloat((currentTemp + delta).toFixed(1));
+  if (currentTemp < 15.0) currentTemp = 15.0;
+  if (currentTemp > 35.0) currentTemp = 35.0;
+
   let payloadObj;
   if (deviceKind === 'switch') {
+    // SWITCH mode: Sends BOTH switch state AND sensor readings
     payloadObj = {
       id: deviceId,
       state: switchState,
+      temperature: currentTemp,
     };
   } else {
-    const delta = (Math.floor(Math.random() * 11) - 5) / 10.0;
-    currentTemp = parseFloat((currentTemp + delta).toFixed(1));
-    if (currentTemp < 15.0) currentTemp = 15.0;
-    if (currentTemp > 35.0) currentTemp = 35.0;
-
+    // SENSOR mode: Sends ONLY sensor readings (no switch state)
     payloadObj = {
       id: deviceId,
       temperature: currentTemp,
-      humidity: Math.floor(45 + Math.random() * 15),
     };
   }
 

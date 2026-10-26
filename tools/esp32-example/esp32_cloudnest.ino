@@ -1,4 +1,21 @@
 /*
+ * ==========================================================================
+ *  REQUIRED LIBRARIES — install these in your IDE BEFORE compiling
+ * ==========================================================================
+ *  Arduino IDE:
+ *    Sketch -> Include Library -> Manage Libraries...
+ *    (or click the Library Manager icon in the left sidebar),
+ *    then search for and install:
+ *      1. PubSubClient                 (by Nick O'Leary)
+ *      2. DHT sensor library for ESPx  (by beegee_tokyo)
+ *      3. ArduinoJson v6.x             (by Benoit Blanchon) — parses commands
+ *
+ *  PlatformIO:
+ *    All libraries are already declared under lib_deps in platformio.ini.
+ * ==========================================================================
+ */
+
+/*
  * CloudNest — ESP32 Virtual IoT Client (Wokwi-Ready)
  * 
  * Demonstrates:
@@ -8,8 +25,12 @@
  * - FR-15: Subscribes to command channel and responds to Home Assistant downlinks
  *
  * Hardware (simulated in Wokwi):
- * - DHT22 sensor on GPIO 15 (temperature + humidity)
+ * - DHT22 sensor on GPIO 15 (temperature)
  * - LED on GPIO 2 (LED_BUILTIN — acts as relay/switch indicator)
+ *
+ * Telemetry payload depends on DEVICE_KIND:
+ * - "switch": {"id":"<DEVICE_ID>","state":"ON|OFF","temperature":24.5}
+ * - "sensor": {"id":"<DEVICE_ID>","temperature":24.5}
  *
  * Instructions:
  * 1. Register a device via POST /v1/tenants/:slug/devices
@@ -38,6 +59,9 @@ const char* DEVICE_CLIENT_ID   = "YOUR_DEVICE_CLIENT_ID";
 const char* DEVICE_SECRET      = "YOUR_DEVICE_SECRET";
 const char* TELEMETRY_CHANNEL  = "YOUR_TELEMETRY_CHANNEL_ID";
 const char* COMMAND_CHANNEL    = "YOUR_COMMAND_CHANNEL_ID";
+const char* DEVICE_ID          = "YOUR_DEVICE_ID";
+// Device kind: "switch" (sends state + temperature) or "sensor" (temperature only)
+const char* DEVICE_KIND        = "switch";
 // ======================================================================
 
 // Hardware pins
@@ -50,18 +74,16 @@ const long TELEMETRY_INTERVAL_MS = 10000; // 10 seconds
 // ==================== GLOBALS ====================
 DHTesp dht;
 WiFiClient espClient;
-PubSubClient mqttClient(espClient);
+PubSubClient mqtt(espClient);
+
+char TOPIC_TELEMETRY[128];   // built in setup() from TELEMETRY_CHANNEL
+char TOPIC_COMMAND[128];     // built in setup() from COMMAND_CHANNEL
 
 unsigned long lastTelemetryTime = 0;
-bool switchState = false;
+bool switchOn = false;
+float temperature = 24.0;
 
-// Synthetic fallback for when DHT reading fails (smooth sine wave)
-float syntheticTemp(unsigned long ms) {
-  return 22.0 + 3.0 * sin(ms / 30000.0 * 3.14159);
-}
-float syntheticHumidity(unsigned long ms) {
-  return 50.0 + 10.0 * cos(ms / 45000.0 * 3.14159);
-}
+void publishState();
 
 // ==================== WiFi ====================
 void setupWiFi() {
@@ -107,7 +129,13 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
   Serial.print("Payload: ");
   Serial.println(message);
 
-  bool newState = switchState;
+  // Sensors have no actuator — ignore ON/OFF commands
+  if (strcmp(DEVICE_KIND, "switch") != 0) {
+    Serial.println("Ignoring command: DEVICE_KIND is \"sensor\"");
+    return;
+  }
+
+  bool newState = switchOn;
 
   // Try JSON parsing first
   StaticJsonDocument<256> doc;
@@ -134,79 +162,72 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
   }
 
   // Apply the switch state
-  switchState = newState;
-  digitalWrite(LED_PIN, switchState ? HIGH : LOW);
+  switchOn = newState;
+  digitalWrite(LED_PIN, switchOn ? HIGH : LOW);
 
   Serial.println("--------------------------------------------");
   Serial.print("  Switch State: ");
-  Serial.println(switchState ? "ON (LED HIGH)" : "OFF (LED LOW)");
+  Serial.println(switchOn ? "ON (LED HIGH)" : "OFF (LED LOW)");
   Serial.println("--------------------------------------------");
   Serial.println();
 
   // Immediately publish updated state back to telemetry
-  publishTelemetry(true);
+  publishState();
 }
 
 // ==================== Home Assistant MQTT Discovery ====================
 void publishHomeAssistantDiscovery() {
   char discTopic[160];
   char payload[512];
-  char telemTopic[128];
-  char cmdTopic[128];
-
-  snprintf(telemTopic, sizeof(telemTopic), "channels/%s/messages", TELEMETRY_CHANNEL);
-  snprintf(cmdTopic, sizeof(cmdTopic), "channels/%s/messages", COMMAND_CHANNEL);
 
   Serial.println("Publishing Home Assistant MQTT auto-discovery configs...");
 
-  // 1. Temperature Sensor
+  // 1. Temperature Sensor (published by both "sensor" and "switch" kinds)
   snprintf(discTopic, sizeof(discTopic), "homeassistant/sensor/%s_temp/config", DEVICE_CLIENT_ID);
   snprintf(payload, sizeof(payload),
     "{\"name\":\"ESP32 Temperature\",\"unique_id\":\"%s_temp\",\"stat_t\":\"%s\",\"val_tpl\":\"{{ value_json.temperature }}\",\"unit_of_meas\":\"°C\",\"dev_cla\":\"temperature\",\"dev\":{\"ids\":[\"%s\"],\"name\":\"ESP32 IoT Node\",\"mf\":\"CloudNest\"}}",
-    DEVICE_CLIENT_ID, telemTopic, DEVICE_CLIENT_ID);
-  mqttClient.publish(discTopic, payload, true);
+    DEVICE_CLIENT_ID, TOPIC_TELEMETRY, DEVICE_CLIENT_ID);
+  mqtt.publish(discTopic, payload, true);
 
-  // 2. Humidity Sensor
-  snprintf(discTopic, sizeof(discTopic), "homeassistant/sensor/%s_humidity/config", DEVICE_CLIENT_ID);
-  snprintf(payload, sizeof(payload),
-    "{\"name\":\"ESP32 Humidity\",\"unique_id\":\"%s_humidity\",\"stat_t\":\"%s\",\"val_tpl\":\"{{ value_json.humidity }}\",\"unit_of_meas\":\"%%\",\"dev_cla\":\"humidity\",\"dev\":{\"ids\":[\"%s\"],\"name\":\"ESP32 IoT Node\",\"mf\":\"CloudNest\"}}",
-    DEVICE_CLIENT_ID, telemTopic, DEVICE_CLIENT_ID);
-  mqttClient.publish(discTopic, payload, true);
-
-  // 3. Switch Entity
-  snprintf(discTopic, sizeof(discTopic), "homeassistant/switch/%s_switch/config", DEVICE_CLIENT_ID);
-  snprintf(payload, sizeof(payload),
-    "{\"name\":\"ESP32 Switch\",\"unique_id\":\"%s_switch\",\"stat_t\":\"%s\",\"cmd_t\":\"%s\",\"val_tpl\":\"{{ value_json.state }}\",\"pl_on\":\"ON\",\"pl_off\":\"OFF\",\"stat_on\":\"ON\",\"stat_off\":\"OFF\",\"dev\":{\"ids\":[\"%s\"],\"name\":\"ESP32 IoT Node\",\"mf\":\"CloudNest\"}}",
-    DEVICE_CLIENT_ID, telemTopic, cmdTopic, DEVICE_CLIENT_ID);
-  mqttClient.publish(discTopic, payload, true);
+  // 2. Switch Entity (only for "switch" kind — sensors don't report state)
+  if (strcmp(DEVICE_KIND, "switch") == 0) {
+    snprintf(discTopic, sizeof(discTopic), "homeassistant/switch/%s_switch/config", DEVICE_CLIENT_ID);
+    snprintf(payload, sizeof(payload),
+      "{\"name\":\"ESP32 Switch\",\"unique_id\":\"%s_switch\",\"stat_t\":\"%s\",\"cmd_t\":\"%s\",\"val_tpl\":\"{{ value_json.state }}\",\"pl_on\":\"ON\",\"pl_off\":\"OFF\",\"stat_on\":\"ON\",\"stat_off\":\"OFF\",\"dev\":{\"ids\":[\"%s\"],\"name\":\"ESP32 IoT Node\",\"mf\":\"CloudNest\"}}",
+      DEVICE_CLIENT_ID, TOPIC_TELEMETRY, TOPIC_COMMAND, DEVICE_CLIENT_ID);
+    mqtt.publish(discTopic, payload, true);
+  }
 
   Serial.println("[OK] Home Assistant Discovery published (retained)");
 }
 
 // ==================== MQTT Connection ====================
 void reconnectMQTT() {
-  while (!mqttClient.connected()) {
+  while (!mqtt.connected()) {
     Serial.print("Connecting to MQTT broker (Magistrala)... ");
     Serial.print(MQTT_HOST);
     Serial.print(":");
     Serial.println(MQTT_PORT);
 
-    if (mqttClient.connect(DEVICE_CLIENT_ID, DEVICE_CLIENT_ID, DEVICE_SECRET)) {
+    if (mqtt.connect(DEVICE_CLIENT_ID, DEVICE_CLIENT_ID, DEVICE_SECRET)) {
       Serial.println("[OK] MQTT Connected!");
 
       // Subscribe to command channel
       char commandTopic[128];
       snprintf(commandTopic, sizeof(commandTopic), "channels/%s/messages/#", COMMAND_CHANNEL);
-      mqttClient.subscribe(commandTopic, 1);
+      mqtt.subscribe(commandTopic, 1);
       Serial.print("Subscribed to commands: ");
       Serial.println(commandTopic);
       Serial.println();
 
       // Announce device entities to Home Assistant via MQTT Discovery
       publishHomeAssistantDiscovery();
+
+      // Report initial state right away
+      publishState();
     } else {
       Serial.print("[FAIL] rc=");
-      Serial.print(mqttClient.state());
+      Serial.print(mqtt.state());
       Serial.println(" — Check credentials (FR-08). Retrying in 5s...");
       delay(5000);
     }
@@ -214,47 +235,32 @@ void reconnectMQTT() {
 }
 
 // ==================== Telemetry ====================
-void publishTelemetry(bool isStateUpdate) {
-  // Read DHT22 sensor
+void publishState() {
+  char body[160];
+
+  // Refresh sensor value: read the real DHT22 sensor, and fall back to the
+  // random-walk simulation if the read fails.
   TempAndHumidity data = dht.getTempAndHumidity();
-  float temperature, humidity;
-
-  if (isnan(data.temperature) || isnan(data.humidity)) {
-    // Fallback to synthetic sine wave if DHT read fails
-    unsigned long ms = millis();
-    temperature = syntheticTemp(ms);
-    humidity = syntheticHumidity(ms);
-  } else {
+  if (!isnan(data.temperature)) {
     temperature = data.temperature;
-    humidity = data.humidity;
-  }
-
-  // Build JSON payload
-  StaticJsonDocument<256> doc;
-  doc["device"] = DEVICE_CLIENT_ID;
-  doc["temperature"] = serialized(String(temperature, 1));
-  doc["humidity"] = serialized(String(humidity, 1));
-  doc["state"] = switchState ? "ON" : "OFF";
-  doc["uptime_sec"] = millis() / 1000;
-
-  char buffer[256];
-  serializeJson(doc, buffer);
-
-  // Build topic
-  char telemetryTopic[128];
-  snprintf(telemetryTopic, sizeof(telemetryTopic), "channels/%s/messages", TELEMETRY_CHANNEL);
-
-  if (!isStateUpdate) {
-    Serial.print("Publishing telemetry → ");
-    Serial.println(telemetryTopic);
-    Serial.print("  ");
-    Serial.println(buffer);
   } else {
-    Serial.print("State update → ");
-    Serial.println(buffer);
+    temperature += ((int)random(-5, 6)) / 10.0f;
+    if (temperature < 15) temperature = 15;
+    if (temperature > 35) temperature = 35;
   }
 
-  mqttClient.publish(telemetryTopic, buffer);
+  if (strcmp(DEVICE_KIND, "switch") == 0) {
+    // SWITCH mode: Sends BOTH switch state AND sensor readings
+    snprintf(body, sizeof(body), "{\"id\":\"%s\",\"state\":\"%s\",\"temperature\":%.1f}", 
+             DEVICE_ID, switchOn ? "ON" : "OFF", temperature);
+  } else {
+    // SENSOR mode: Sends ONLY sensor readings (no button state)
+    snprintf(body, sizeof(body), "{\"id\":\"%s\",\"temperature\":%.1f}", 
+             DEVICE_ID, temperature);
+  }
+
+  bool ok = mqtt.publish(TOPIC_TELEMETRY, body);
+  Serial.printf("Published (%s): %s\n", ok ? "ok" : "FAILED", body);
 }
 
 // ==================== Setup ====================
@@ -268,8 +274,14 @@ void setup() {
   Serial.println("============================================");
   Serial.println("  CloudNest ESP32 IoT Client v1.0");
   Serial.println("  Platform: The-SIFT / CloudNest");
+  Serial.print("  Device kind: ");
+  Serial.println(DEVICE_KIND);
   Serial.println("============================================");
   Serial.println();
+
+  // Build MQTT topics
+  snprintf(TOPIC_TELEMETRY, sizeof(TOPIC_TELEMETRY), "channels/%s/messages", TELEMETRY_CHANNEL);
+  snprintf(TOPIC_COMMAND, sizeof(TOPIC_COMMAND), "channels/%s/messages", COMMAND_CHANNEL);
 
   // Initialize DHT22 sensor
   dht.setup(DHT_PIN, DHTesp::DHT22);
@@ -279,9 +291,9 @@ void setup() {
   setupWiFi();
 
   // Configure MQTT
-  mqttClient.setServer(MQTT_HOST, MQTT_PORT);
-  mqttClient.setCallback(mqttCallback);
-  mqttClient.setBufferSize(512);
+  mqtt.setServer(MQTT_HOST, MQTT_PORT);
+  mqtt.setCallback(mqttCallback);
+  mqtt.setBufferSize(512);
 
   Serial.println("Setup complete. Starting main loop...");
   Serial.println();
@@ -289,14 +301,14 @@ void setup() {
 
 // ==================== Loop ====================
 void loop() {
-  if (!mqttClient.connected()) {
+  if (!mqtt.connected()) {
     reconnectMQTT();
   }
-  mqttClient.loop();
+  mqtt.loop();
 
   unsigned long now = millis();
   if (now - lastTelemetryTime > TELEMETRY_INTERVAL_MS) {
     lastTelemetryTime = now;
-    publishTelemetry(false);
+    publishState();
   }
 }

@@ -13,6 +13,7 @@ import {
   resolveMqttHost,
   resolveCloudDomain,
   resolveHaUrl,
+  renderRequiredLibrariesCallout,
 } from '../ui.js';
 
 export async function renderAddDevice(container, slug, router) {
@@ -363,6 +364,8 @@ export async function renderAddDevice(container, slug, router) {
                 Download ESP32 Sketch (sift-device.ino)
               </button>
             </div>
+
+            ${renderRequiredLibrariesCallout('margin-top: var(--space-md); margin-bottom: 0;')}
           </div>
         `}
 
@@ -522,8 +525,10 @@ export async function renderAddDevice(container, slug, router) {
           </div>
         ` : `
           <div style="background: var(--bg-surface); padding: var(--space-lg); border-radius: var(--radius-sm); border: 1px solid var(--border);">
+            ${renderRequiredLibrariesCallout('margin-bottom: var(--space-md);')}
             <ol style="margin-left: 1.25rem; font-size: 0.84375rem; line-height: 1.85; color: var(--text-secondary); margin-bottom: 0;">
               <li>Open <code>sift-device.ino</code> in <strong>Arduino IDE</strong>.</li>
+              <li>Install the required libraries listed above (one-time setup).</li>
               <li>Select your ESP32 board and USB port under the <em>Tools</em> menu.</li>
               <li>Click <strong>Upload</strong> to flash the sketch to your board.</li>
             </ol>
@@ -575,6 +580,7 @@ export async function renderAddDevice(container, slug, router) {
         // Continue polling
       }
     }, 3000);
+    router.registerInterval?.(pollInterval);
   }
 
   // Step 4: Connected!

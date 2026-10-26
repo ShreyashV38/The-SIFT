@@ -38,8 +38,20 @@ class Router {
     this.topbarActions = document.getElementById('topbar-actions');
     this.session = null;
     this.currentSlug = null;
+    this.pageIntervals = new Set(); // Page-scoped polling timers, cleared on navigation
 
     this.initMobileDrawer();
+  }
+
+  // Register a page-scoped setInterval id so it is cleared when the user navigates away
+  registerInterval(intervalId) {
+    if (intervalId != null) this.pageIntervals.add(intervalId);
+    return intervalId;
+  }
+
+  clearPageIntervals() {
+    this.pageIntervals.forEach(id => clearInterval(id));
+    this.pageIntervals.clear();
   }
 
   initMobileDrawer() {
@@ -328,6 +340,8 @@ class Router {
   }
 
   async handleRoute() {
+    // Stop any live-polling timers owned by the previous view
+    this.clearPageIntervals();
     window.scrollTo(0, 0);
     this.renderHeader();
     const hash = window.location.hash || '#/';

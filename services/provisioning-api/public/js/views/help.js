@@ -2,7 +2,7 @@
 // The-SIFT Smart Home Portal — Getting Started & Help Guide (#/help)
 // ---------------------------------------------------------------------------
 
-import { copyToClipboard } from '../ui.js';
+import { copyToClipboard, renderRequiredLibrariesCallout } from '../ui.js';
 
 export function renderHelp(container) {
   const simCommand = 'npm install mqtt && node one-device.js --config ./sift-device.json';
@@ -94,7 +94,8 @@ export function renderHelp(container) {
           </li>
           <li>
             <strong>If using a physical ESP32 board:</strong>
-            Enter your 2.4 GHz Wi-Fi name and password, download <code>sift-device.ino</code>, and upload it in <strong>Arduino IDE</strong> (with the <code>esp32</code> board package and <code>PubSubClient</code> library installed).
+            Enter your 2.4 GHz Wi-Fi name and password, download <code>sift-device.ino</code>, and upload it in <strong>Arduino IDE</strong> (with the <code>esp32</code> board package and the libraries below installed).
+            ${renderRequiredLibrariesCallout('margin: 8px 0;')}
             <div style="margin-top: 6px; font-size: 0.8125rem; color: var(--text-muted);">
               Arduino ESP32 Board Manager URL:
             </div>

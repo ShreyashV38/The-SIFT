@@ -26,6 +26,71 @@ function formatReadingUnit(key) {
   return '';
 }
 
+const LIVE_POLL_INTERVAL_MS = 3000;
+
+function buildStatusPill(device) {
+  if (device.status === 'online') {
+    return `<span class="badge badge-online"><span class="led-dot led-emerald"></span>Online</span>`;
+  }
+  if (device.status === 'pending') {
+    return `<span class="badge badge-pending"><span class="led-dot led-amber"></span>Waiting for data</span>`;
+  }
+  if (device.status === 'revoked') {
+    return `<span class="badge badge-revoked"><span class="led-dot led-rose"></span>Removed</span>`;
+  }
+  return `<span class="badge badge-offline"><span class="led-dot led-muted"></span>Offline</span>`;
+}
+
+function buildReadingsHtml(device) {
+  const readingItems = [];
+  if (device.lastValue && typeof device.lastValue === 'object') {
+    Object.keys(device.lastValue).forEach(key => {
+      if (key !== 'id' && key !== 'deviceId') {
+        readingItems.push({
+          label: formatReadingLabel(key),
+          val: device.lastValue[key],
+          unit: formatReadingUnit(key),
+        });
+      }
+    });
+  }
+
+  const bottomMargin = device.kind === 'switch' && device.status !== 'revoked' ? 'var(--space-lg)' : '0';
+
+  if (readingItems.length > 0) {
+    return `
+      <div class="stat-grid" style="margin-bottom: ${bottomMargin};">
+        ${readingItems.map(item => `
+          <div class="stat-card">
+            <div class="stat-label">${item.label}</div>
+            <div class="stat-value">
+              ${item.val} <span style="font-size: 0.9rem; color: var(--text-muted);">${item.unit}</span>
+            </div>
+            <div class="stat-hint">Live reading</div>
+          </div>
+        `).join('')}
+      </div>
+    `;
+  }
+
+  if (device.lastValue) {
+    return `
+      <div style="margin-bottom: ${bottomMargin}; padding: var(--space-md); background: var(--bg-surface); border-radius: var(--radius-sm); border: 1px solid var(--border);">
+        <div class="data-label">Current State</div>
+        <div class="data-value mono" style="font-size: 1.25rem; color: var(--led-emerald);">${String(device.lastValue)}</div>
+      </div>
+    `;
+  }
+
+  return `
+    <div class="empty-state" style="padding: var(--space-xl) var(--space-md);">
+      <p style="color: var(--text-muted); font-size: 0.875rem; margin-bottom: 0;">
+        Waiting for this device to send its first reading.
+      </p>
+    </div>
+  `;
+}
+
 export async function renderDeviceDetail(container, slug, deviceId, router) {
   container.innerHTML = `
     <div style="text-align: center; padding: var(--space-4xl) var(--space-xl);">
@@ -59,31 +124,8 @@ export async function renderDeviceDetail(container, slug, deviceId, router) {
   const callerRole = tenantData.callerRole || 'member';
   const isAdmin = callerRole === 'admin' || callerRole === 'owner';
 
-  let statusPill = '';
-  if (device.status === 'online') {
-    statusPill = `<span class="badge badge-online"><span class="led-dot led-emerald"></span>Online</span>`;
-  } else if (device.status === 'pending') {
-    statusPill = `<span class="badge badge-pending"><span class="led-dot led-amber"></span>Waiting for data</span>`;
-  } else if (device.status === 'revoked') {
-    statusPill = `<span class="badge badge-revoked"><span class="led-dot led-rose"></span>Removed</span>`;
-  } else {
-    statusPill = `<span class="badge badge-offline"><span class="led-dot led-muted"></span>Offline</span>`;
-  }
-
+  const statusPill = buildStatusPill(device);
   const typeLabel = device.kind === 'switch' ? 'Switch' : 'Sensor';
-
-  let readingItems = [];
-  if (device.lastValue && typeof device.lastValue === 'object') {
-    Object.keys(device.lastValue).forEach(key => {
-      if (key !== 'id' && key !== 'deviceId') {
-        readingItems.push({
-          label: formatReadingLabel(key),
-          val: device.lastValue[key],
-          unit: formatReadingUnit(key),
-        });
-      }
-    });
-  }
 
   container.innerHTML = `
     <div>
@@ -93,7 +135,7 @@ export async function renderDeviceDetail(container, slug, deviceId, router) {
           <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 4px; flex-wrap: wrap;">
             <h1>${device.name}</h1>
             <span class="badge badge-role">${typeLabel}</span>
-            ${statusPill}
+            <span id="device-status-pill">${statusPill}</span>
           </div>
           <p style="margin-bottom: 0; font-size: 0.84375rem; color: var(--text-secondary);">
             Added on ${device.createdAt ? new Date(device.createdAt).toLocaleDateString() : '—'}
@@ -121,34 +163,13 @@ export async function renderDeviceDetail(container, slug, deviceId, router) {
         <div class="card-header">
           <div>
             <h3 style="margin-bottom: 2px;">Live Status</h3>
-            <span class="data-label">Last updated: ${formatRelativeTime(device.lastSeenAt)}</span>
+            <span class="data-label" id="device-last-updated">Last updated: ${formatRelativeTime(device.lastSeenAt)}</span>
           </div>
         </div>
 
-        ${readingItems.length > 0 ? `
-          <div class="stat-grid" style="margin-bottom: ${device.kind === 'switch' && device.status !== 'revoked' ? 'var(--space-lg)' : '0'};">
-            ${readingItems.map(item => `
-              <div class="stat-card">
-                <div class="stat-label">${item.label}</div>
-                <div class="stat-value">
-                  ${item.val} <span style="font-size: 0.9rem; color: var(--text-muted);">${item.unit}</span>
-                </div>
-                <div class="stat-hint">Live reading</div>
-              </div>
-            `).join('')}
-          </div>
-        ` : (device.lastValue ? `
-          <div style="margin-bottom: ${device.kind === 'switch' && device.status !== 'revoked' ? 'var(--space-lg)' : '0'}; padding: var(--space-md); background: var(--bg-surface); border-radius: var(--radius-sm); border: 1px solid var(--border);">
-            <div class="data-label">Current State</div>
-            <div class="data-value mono" style="font-size: 1.25rem; color: var(--led-emerald);">${String(device.lastValue)}</div>
-          </div>
-        ` : `
-          <div class="empty-state" style="padding: var(--space-xl) var(--space-md);">
-            <p style="color: var(--text-muted); font-size: 0.875rem; margin-bottom: 0;">
-              Waiting for this device to send its first reading.
-            </p>
-          </div>
-        `)}
+        <div id="device-live-readings" aria-live="polite">
+          ${buildReadingsHtml(device)}
+        </div>
 
         ${device.kind === 'switch' && device.status !== 'revoked' ? `
           <hr class="section-divider">
@@ -183,6 +204,52 @@ export async function renderDeviceDetail(container, slug, deviceId, router) {
       ` : ''}
     </div>
   `;
+
+  // ---- Live polling: silently refresh status & telemetry every 3 seconds ----
+  const routeHash = window.location.hash;
+  let lastStatus = device.status;
+  let lastReadingsKey = JSON.stringify(device.lastValue ?? null);
+  let lastSeenAt = device.lastSeenAt;
+  let inFlight = false;
+
+  const pollId = setInterval(async () => {
+    // Self-cancel if the view is gone (router also clears this on navigation)
+    if (window.location.hash !== routeHash || !container.querySelector('#device-live-readings')) {
+      clearInterval(pollId);
+      return;
+    }
+    if (inFlight || document.hidden) return;
+    inFlight = true;
+
+    try {
+      const res = await api.getDeviceStatus(slug, deviceId);
+      const latest = res.device || {};
+      if (window.location.hash !== routeHash) return;
+
+      const pillEl = container.querySelector('#device-status-pill');
+      const updatedEl = container.querySelector('#device-last-updated');
+      const readingsEl = container.querySelector('#device-live-readings');
+
+      if (latest.lastSeenAt) lastSeenAt = latest.lastSeenAt;
+      if (updatedEl) updatedEl.textContent = `Last updated: ${formatRelativeTime(lastSeenAt)}`;
+
+      if (pillEl && latest.status !== lastStatus) {
+        lastStatus = latest.status;
+        pillEl.innerHTML = buildStatusPill(latest);
+      }
+
+      const readingsKey = JSON.stringify(latest.lastValue ?? null);
+      if (readingsEl && readingsKey !== lastReadingsKey) {
+        lastReadingsKey = readingsKey;
+        readingsEl.innerHTML = buildReadingsHtml({ ...device, ...latest });
+      }
+    } catch {
+      // Silent: keep showing the last known values and retry on the next tick
+    } finally {
+      inFlight = false;
+    }
+  }, LIVE_POLL_INTERVAL_MS);
+  router.registerInterval?.(pollId);
 
   container.querySelector('#cmd-on-btn')?.addEventListener('click', async () => {
     try {
