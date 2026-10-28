@@ -18,7 +18,7 @@ const net = require('net');
 const { URL } = require('url');
 const { getDb } = require('../db');
 const { ensureTenantHaRunning, getTenantInternalHaPort } = require('./kubernetes');
-const logger = require('../utils/logger');
+const logger = require('../logger');
 
 let server = null;
 const syncedTenants = new Set();
@@ -303,7 +303,7 @@ function startHaProxy(port = process.env.HA_PROXY_PORT || 8123) {
       if (!syncedTenants.has(slug)) {
         syncedTenants.add(slug);
         try {
-          const { publishHADiscovery } = require('../../../iot-broker-service/src/routes/devices');
+          const { publishHADiscovery } = require('sift-iot-broker-service');
           const activeDevices = db.prepare("SELECT * FROM devices WHERE tenant_id = ? AND status = 'active'").all(tenant.id);
           for (const dev of activeDevices) {
             publishHADiscovery(tenant, dev.name, dev.mg_client_id, dev.kind).catch(() => {});
