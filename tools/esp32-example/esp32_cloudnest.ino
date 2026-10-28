@@ -29,7 +29,7 @@
  * - LED on GPIO 2 (LED_BUILTIN — acts as relay/switch indicator)
  *
  * Telemetry payload depends on DEVICE_KIND:
- * - "switch": {"id":"<DEVICE_ID>","state":"ON|OFF","temperature":24.5}
+ * - "switch": {"id":"<DEVICE_ID>","state":"ON|OFF"}
  * - "sensor": {"id":"<DEVICE_ID>","temperature":24.5}
  *
  * Instructions:
@@ -68,7 +68,7 @@ const char* TELEMETRY_CHANNEL  = "YOUR_TELEMETRY_CHANNEL_ID";
 const char* COMMAND_CHANNEL    = "YOUR_COMMAND_CHANNEL_ID";
 const char* DEVICE_ID          = "YOUR_DEVICE_ID";
 const char* TENANT_SLUG        = "YOUR_TENANT_SLUG";
-// Device kind: "switch" (sends state + temperature) or "sensor" (temperature only)
+// Device kind: "switch" (sends state only) or "sensor" (temperature only)
 const char* DEVICE_KIND        = "switch";
 // ======================================================================
 
@@ -190,19 +190,19 @@ void publishHomeAssistantDiscovery() {
 
   Serial.println("Publishing Home Assistant MQTT auto-discovery configs...");
 
-  // 1. Temperature Sensor (published by both "sensor" and "switch" kinds)
-  snprintf(discTopic, sizeof(discTopic), "ha_%s/sensor/%s_temp/config", TENANT_SLUG, DEVICE_CLIENT_ID);
-  snprintf(payload, sizeof(payload),
-    "{\"name\":\"ESP32 Temperature\",\"unique_id\":\"%s_temp\",\"stat_t\":\"%s\",\"val_tpl\":\"{{ value_json.temperature }}\",\"unit_of_meas\":\"°C\",\"dev_cla\":\"temperature\",\"dev\":{\"ids\":[\"%s\"],\"name\":\"ESP32 IoT Node\",\"mf\":\"CloudNest\"}}",
-    DEVICE_CLIENT_ID, TOPIC_TELEMETRY, DEVICE_CLIENT_ID);
-  mqtt.publish(discTopic, payload, true);
-
-  // 2. Switch Entity (only for "switch" kind — sensors don't report state)
   if (strcmp(DEVICE_KIND, "switch") == 0) {
+    // SWITCH mode: Publish ONLY switch entity — NO temperature or humidity!
     snprintf(discTopic, sizeof(discTopic), "ha_%s/switch/%s_switch/config", TENANT_SLUG, DEVICE_CLIENT_ID);
     snprintf(payload, sizeof(payload),
       "{\"name\":\"ESP32 Switch\",\"unique_id\":\"%s_switch\",\"stat_t\":\"%s\",\"cmd_t\":\"%s\",\"val_tpl\":\"{{ value_json.state }}\",\"pl_on\":\"ON\",\"pl_off\":\"OFF\",\"stat_on\":\"ON\",\"stat_off\":\"OFF\",\"dev\":{\"ids\":[\"%s\"],\"name\":\"ESP32 IoT Node\",\"mf\":\"CloudNest\"}}",
       DEVICE_CLIENT_ID, TOPIC_TELEMETRY, TOPIC_COMMAND, DEVICE_CLIENT_ID);
+    mqtt.publish(discTopic, payload, true);
+  } else {
+    // SENSOR mode: Publish Temperature Sensor
+    snprintf(discTopic, sizeof(discTopic), "ha_%s/sensor/%s_temp/config", TENANT_SLUG, DEVICE_CLIENT_ID);
+    snprintf(payload, sizeof(payload),
+      "{\"name\":\"ESP32 Temperature\",\"unique_id\":\"%s_temp\",\"stat_t\":\"%s\",\"val_tpl\":\"{{ value_json.temperature }}\",\"unit_of_meas\":\"°C\",\"dev_cla\":\"temperature\",\"dev\":{\"ids\":[\"%s\"],\"name\":\"ESP32 IoT Node\",\"mf\":\"CloudNest\"}}",
+      DEVICE_CLIENT_ID, TOPIC_TELEMETRY, DEVICE_CLIENT_ID);
     mqtt.publish(discTopic, payload, true);
   }
 
@@ -258,9 +258,9 @@ void publishState() {
   }
 
   if (strcmp(DEVICE_KIND, "switch") == 0) {
-    // SWITCH mode: Sends BOTH switch state AND sensor readings
-    snprintf(body, sizeof(body), "{\"id\":\"%s\",\"state\":\"%s\",\"temperature\":%.1f}", 
-             DEVICE_ID, switchOn ? "ON" : "OFF", temperature);
+    // SWITCH mode: Sends ONLY switch state (NO temperature)
+    snprintf(body, sizeof(body), "{\"id\":\"%s\",\"state\":\"%s\"}", 
+             DEVICE_ID, switchOn ? "ON" : "OFF");
   } else {
     // SENSOR mode: Sends ONLY sensor readings (no button state)
     snprintf(body, sizeof(body), "{\"id\":\"%s\",\"temperature\":%.1f}", 

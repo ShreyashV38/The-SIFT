@@ -146,6 +146,12 @@ export function renderLogin(container, router) {
           <div id="otp-error" class="banner banner-danger" style="display: none;"></div>
           <div id="otp-success" class="banner banner-success" style="display: none;"></div>
 
+          <div id="otp-timer-wrap" style="text-align: center; margin: 0 0 var(--space-md) 0; font-size: 0.8125rem; color: var(--text-secondary);">
+            <span style="display: inline-flex; align-items: center; gap: 6px; padding: 4px 12px; background: rgba(13, 148, 136, 0.08); border: 1px solid rgba(13, 148, 136, 0.2); border-radius: 999px;">
+              ⏱ Code expires in <strong id="otp-countdown" class="mono" style="font-size: 0.875rem; color: var(--accent);">01:00</strong>
+            </span>
+          </div>
+
           <form id="otp-form">
             <div class="form-group">
               <label for="otp-digit-1" style="text-align: center;">6-Digit Verification Code</label>
@@ -187,8 +193,71 @@ export function renderLogin(container, router) {
     const hiddenInput = container.querySelector('#otp-code');
     const digits = Array.from({ length: 6 }, (_, i) => container.querySelector(`#otp-digit-${i + 1}`));
 
+    let timerInterval = null;
+    let secondsLeft = 60;
+
+    function stopCountdown() {
+      if (timerInterval) {
+        clearInterval(timerInterval);
+        timerInterval = null;
+      }
+    }
+
+    function updateTimerDisplay() {
+      const countdownEl = container.querySelector('#otp-countdown');
+      if (!countdownEl) return;
+      const mins = String(Math.floor(secondsLeft / 60)).padStart(2, '0');
+      const secs = String(secondsLeft % 60).padStart(2, '0');
+      countdownEl.textContent = `${mins}:${secs}`;
+      if (secondsLeft <= 15) {
+        countdownEl.style.color = '#ef4444';
+      } else {
+        countdownEl.style.color = 'var(--accent)';
+      }
+    }
+
+    function onOtpExpired() {
+      stopCountdown();
+      const countdownEl = container.querySelector('#otp-countdown');
+      if (countdownEl) {
+        countdownEl.textContent = '00:00';
+        countdownEl.style.color = '#ef4444';
+      }
+      errorBanner.textContent = '⚠️ Verification code has expired (1-minute limit). Please click "Resend verification code" below.';
+      errorBanner.style.display = 'block';
+      btn.disabled = true;
+      digits.forEach(d => {
+        d.disabled = true;
+        d.style.opacity = '0.5';
+      });
+      resendBtn.classList.add('btn-primary');
+      resendBtn.classList.remove('btn-ghost');
+      resendBtn.focus();
+    }
+
+    function startCountdown(seconds = 60) {
+      stopCountdown();
+      secondsLeft = seconds;
+      digits.forEach(d => {
+        d.disabled = false;
+        d.style.opacity = '1';
+      });
+      resendBtn.classList.remove('btn-primary');
+      resendBtn.classList.add('btn-ghost');
+      updateTimerDisplay();
+      timerInterval = setInterval(() => {
+        secondsLeft--;
+        if (secondsLeft <= 0) {
+          onOtpExpired();
+        } else {
+          updateTimerDisplay();
+        }
+      }, 1000);
+    }
+
     container.querySelector('#back-to-login')?.addEventListener('click', (e) => {
       e.preventDefault();
+      stopCountdown();
       otpToken = null;
       renderCredentialsStep();
     });
@@ -204,9 +273,9 @@ export function renderLogin(container, router) {
 
         const code = digits.map(d => d.value).join('');
         hiddenInput.value = code;
-        btn.disabled = code.length !== 6;
+        btn.disabled = code.length !== 6 || secondsLeft <= 0;
 
-        if (code.length === 6) {
+        if (code.length === 6 && secondsLeft > 0) {
           form.dispatchEvent(new Event('submit', { cancelable: true }));
         }
       });
@@ -226,10 +295,12 @@ export function renderLogin(container, router) {
         }
         const code = digits.map(d => d.value).join('');
         hiddenInput.value = code;
-        btn.disabled = code.length !== 6;
+        btn.disabled = code.length !== 6 || secondsLeft <= 0;
         if (pasted.length >= 6) {
           digits[5].focus();
-          form.dispatchEvent(new Event('submit', { cancelable: true }));
+          if (secondsLeft > 0) {
+            form.dispatchEvent(new Event('submit', { cancelable: true }));
+          }
         } else if (pasted.length > 0) {
           digits[Math.min(pasted.length, 5)].focus();
         }
@@ -237,9 +308,15 @@ export function renderLogin(container, router) {
     });
 
     digits[0]?.focus();
+    startCountdown(60);
 
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
+      if (secondsLeft <= 0) {
+        onOtpExpired();
+        return;
+      }
+
       errorBanner.style.display = 'none';
       successBanner.style.display = 'none';
 
@@ -251,17 +328,24 @@ export function renderLogin(container, router) {
 
       try {
         const res = await api.verifyOtp(otpToken, code);
+        stopCountdown();
         toast(`Signed in as ${res.account.displayName}`, 'success');
         await router.refreshSession();
         router.navigate('#/');
       } catch (err) {
-        errorBanner.textContent = err.message || 'Invalid verification code.';
-        errorBanner.style.display = 'block';
-        digits.forEach(d => { d.value = ''; });
-        hiddenInput.value = '';
-        digits[0].focus();
+        if (err.code === 'OTP_EXPIRED' || (err.message && err.message.toLowerCase().includes('expired'))) {
+          onOtpExpired();
+        } else {
+          errorBanner.textContent = err.message || 'Invalid verification code.';
+          errorBanner.style.display = 'block';
+          digits.forEach(d => { d.value = ''; });
+          hiddenInput.value = '';
+          digits[0].focus();
+        }
       } finally {
-        btn.disabled = false;
+        if (secondsLeft > 0) {
+          btn.disabled = hiddenInput.value.length !== 6;
+        }
         btn.textContent = 'Verify & Sign In';
       }
     });
@@ -273,12 +357,16 @@ export function renderLogin(container, router) {
 
       try {
         const res = await api.resendOtp(otpToken);
+        if (res.otpToken) {
+          otpToken = res.otpToken;
+        }
         successBanner.textContent = res.message || 'New verification code dispatched.';
         successBanner.style.display = 'block';
         toast('New verification code sent', 'success');
         digits.forEach(d => { d.value = ''; });
         hiddenInput.value = '';
         btn.disabled = true;
+        startCountdown(60);
         digits[0].focus();
       } catch (err) {
         errorBanner.textContent = err.message || 'Failed to resend code.';

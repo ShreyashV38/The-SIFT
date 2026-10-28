@@ -123,7 +123,7 @@ async function sendOtp(to, code, displayName) {
       </span>
     </div>
     <p style="color: #9ca3af; font-size: 13px; margin: 0 0 8px;">
-      ⏱ This code expires in <strong style="color: #d1d5db;">5 minutes</strong>.
+      ⏱ This code expires in <strong style="color: #d1d5db;">1 minute</strong>.
     </p>
     <p style="color: #9ca3af; font-size: 13px; margin: 0;">
       If you did not attempt to log in, someone may be trying to access your account. Please change your password immediately.

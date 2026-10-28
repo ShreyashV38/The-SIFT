@@ -77,7 +77,7 @@ const config = {
 
   // OTP (Email 2FA)
   otpLength: 6,
-  otpExpirySeconds: parseInt(process.env.OTP_EXPIRY_SECONDS || '300', 10), // 5 minutes
+  otpExpirySeconds: parseInt(process.env.OTP_EXPIRY_SECONDS || '60', 10), // 1 minute
 
   // Reserved slugs that cannot be used for tenant households
   reservedSlugs: ['app', 'portal', 'www', 'admin', 'api', 'platform', 'observability', 'magistrala', 'thingsboard'],

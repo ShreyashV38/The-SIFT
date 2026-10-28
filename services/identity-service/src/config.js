@@ -16,7 +16,7 @@ module.exports = {
   emailUser: process.env.GMAIL_USER || 'nitollwaat@gmail.com',
   emailPass: process.env.GMAIL_APP_PASSWORD || 'ayqlzdpeubunibya',
   otpLength: 6,
-  otpExpirySeconds: parseInt(process.env.OTP_EXPIRY_SECONDS || '300', 10),
+  otpExpirySeconds: parseInt(process.env.OTP_EXPIRY_SECONDS || '60', 10), // 1 minute
   loginRateLimitMax: parseInt(process.env.LOGIN_RATE_LIMIT_MAX || '30', 10),
   plans: PLANS,
 };

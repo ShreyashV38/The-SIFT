@@ -127,17 +127,17 @@ function publishState() {
 
   let payloadObj;
   if (deviceKind === 'switch') {
-    // SWITCH mode: Sends BOTH switch state AND sensor readings
+    // SWITCH mode: Sends ONLY switch state (NO temperature)
     payloadObj = {
       id: deviceId,
       state: switchState,
-      temperature: currentTemp,
     };
   } else {
     // SENSOR mode: Sends ONLY sensor readings (no switch state)
     payloadObj = {
       id: deviceId,
       temperature: currentTemp,
+      humidity: 50.0,
     };
   }
 

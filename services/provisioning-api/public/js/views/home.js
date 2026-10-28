@@ -54,7 +54,7 @@ export async function renderHome(container, slug, router) {
   const haUrl = resolveHaUrl(slug, tenant.url, cloudDomain);
 
   const activeDevices = devices.filter(d => d.status !== 'revoked');
-  const onlineCount = devices.filter(d => d.status === 'online').length;
+  const onlineCount = activeDevices.filter(d => d.status === 'online').length;
   const maxDevices = limits.devices?.max || 10;
   const maxSeats = limits.seats?.max || 1;
   const usedSeats = limits.seats?.used || members.length || 1;
@@ -62,7 +62,7 @@ export async function renderHome(container, slug, router) {
   const devicePct = Math.min(100, Math.round((activeDevices.length / maxDevices) * 100));
   const seatPct = Math.min(100, Math.round((usedSeats / maxSeats) * 100));
   const isReady = (tenant.status || 'ready') === 'ready' || tenant.status === 'active';
-  const recentDevices = devices.slice(0, 5);
+  const recentDevices = activeDevices.slice(0, 5);
 
   container.innerHTML = `
     <div>
@@ -224,7 +224,7 @@ export async function renderHome(container, slug, router) {
             </p>
           </div>
           <div style="display: flex; gap: 8px;">
-            <a href="#/t/${slug}/devices" class="btn btn-secondary btn-sm">View All (${devices.length})</a>
+            <a href="#/t/${slug}/devices" class="btn btn-secondary btn-sm">View All (${activeDevices.length})</a>
             <a href="#/t/${slug}/devices/new" class="btn btn-primary btn-sm">+ Add Device</a>
           </div>
         </div>

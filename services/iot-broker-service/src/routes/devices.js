@@ -72,7 +72,7 @@ router.get('/:slug/devices', requireAuth, requireRole('member'), (req, res) => {
   const db = getDb();
   const rawDevices = db.prepare(`
     SELECT id, name, kind, mg_client_id, status, created_at, first_connected_at, last_seen_at, last_value_json
-    FROM devices WHERE tenant_id = ? AND status != 'deleted'
+    FROM devices WHERE tenant_id = ? AND status != 'deleted' AND status != 'revoked'
     ORDER BY created_at DESC
   `).all(req.tenant.id);
 
@@ -81,7 +81,7 @@ router.get('/:slug/devices', requireAuth, requireRole('member'), (req, res) => {
   const tenant = db.prepare('SELECT plan FROM tenants WHERE id = ?').get(req.tenant.id);
   const planLimits = config.plans[tenant.plan] || { devices: 10 };
 
-  const activeCount = devices.filter((d) => d.status !== 'revoked').length;
+  const activeCount = devices.length;
 
   res.json({
     devices,
@@ -216,9 +216,9 @@ router.post('/:slug/devices', requireAuth, requireRole('admin'), async (req, res
       deviceId: newDeviceId,
     });
 
-    // Publish HA MQTT Discovery payloads
+    // Publish HA MQTT Discovery payloads matching device kind
     try {
-      await publishHADiscovery(tenant, cleanName, mgDevice.id);
+      await publishHADiscovery(tenant, cleanName, mgDevice.id, kind);
     } catch (err) {
       logger.warn('HA MQTT Discovery publish failed (non-critical)', { error: err.message });
     }
@@ -275,17 +275,31 @@ function getDiscoveryPrefix(tenant) {
   return `ha_${tenant.slug}`;
 }
 
-// Returns the 3 discovery topic paths for a device (used for publish and unpublish)
-function getDiscoveryTopics(tenant, deviceId) {
+// Returns the discovery topic paths for a device (used for publish and unpublish)
+function getDiscoveryTopics(tenant, deviceId, deviceName) {
   const prefix = getDiscoveryPrefix(tenant);
-  return [
-    `${prefix}/sensor/${deviceId}_temp/config`,
-    `${prefix}/sensor/${deviceId}_humidity/config`,
-    `${prefix}/switch/${deviceId}_switch/config`,
-  ];
+  const ids = [deviceId];
+  if (deviceName) {
+    const slugName = deviceName.toLowerCase().replace(/[^a-z0-9_-]/g, '_');
+    if (!ids.includes(slugName)) ids.push(slugName);
+  }
+  const topics = [];
+  for (const id of ids) {
+    if (!id) continue;
+    topics.push(
+      `${prefix}/sensor/${id}_temp/config`,
+      `${prefix}/sensor/${id}_humidity/config`,
+      `${prefix}/switch/${id}_switch/config`,
+      // Legacy global discovery topics (to purge from shared/default Home Assistant)
+      `homeassistant/sensor/${id}_temp/config`,
+      `homeassistant/sensor/${id}_humidity/config`,
+      `homeassistant/switch/${id}_switch/config`
+    );
+  }
+  return topics;
 }
 
-async function publishHADiscovery(tenant, deviceName, deviceId) {
+async function publishHADiscovery(tenant, deviceName, deviceId, kind = 'sensor') {
   const mqttUrl = config.mqttUrl;
   const uniqueId = deviceId;
   const discoveryPrefix = getDiscoveryPrefix(tenant);
@@ -304,42 +318,11 @@ async function publishHADiscovery(tenant, deviceName, deviceId) {
     }, 10000);
 
     client.on('connect', () => {
-      const discoveryPayloads = [
-        {
-          topic: `${discoveryPrefix}/sensor/${uniqueId}_temp/config`,
-          payload: {
-            name: `${deviceName} Temperature`,
-            unique_id: `${uniqueId}_temp`,
-            state_topic: telemetryTopic,
-            value_template: '{{ value_json.temperature }}',
-            unit_of_measurement: '°C',
-            device_class: 'temperature',
-            device: {
-              identifiers: [uniqueId],
-              name: deviceName,
-              manufacturer: 'CloudNest',
-              model: 'ESP32 IoT Sensor',
-            },
-          },
-        },
-        {
-          topic: `${discoveryPrefix}/sensor/${uniqueId}_humidity/config`,
-          payload: {
-            name: `${deviceName} Humidity`,
-            unique_id: `${uniqueId}_humidity`,
-            state_topic: telemetryTopic,
-            value_template: '{{ value_json.humidity }}',
-            unit_of_measurement: '%',
-            device_class: 'humidity',
-            device: {
-              identifiers: [uniqueId],
-              name: deviceName,
-              manufacturer: 'CloudNest',
-              model: 'ESP32 IoT Sensor',
-            },
-          },
-        },
-        {
+      const discoveryPayloads = [];
+
+      if (kind === 'switch') {
+        // SWITCH mode: Publish ONLY the switch entity — NO temperature or humidity!
+        discoveryPayloads.push({
           topic: `${discoveryPrefix}/switch/${uniqueId}_switch/config`,
           payload: {
             name: `${deviceName} Switch`,
@@ -355,11 +338,49 @@ async function publishHADiscovery(tenant, deviceName, deviceId) {
               identifiers: [uniqueId],
               name: deviceName,
               manufacturer: 'CloudNest',
-              model: 'ESP32 IoT Sensor',
+              model: 'ESP32 IoT Switch',
             },
           },
-        },
-      ];
+        });
+      } else {
+        // SENSOR mode: Publish ONLY temperature and humidity sensors — NO switch!
+        discoveryPayloads.push(
+          {
+            topic: `${discoveryPrefix}/sensor/${uniqueId}_temp/config`,
+            payload: {
+              name: `${deviceName} Temperature`,
+              unique_id: `${uniqueId}_temp`,
+              state_topic: telemetryTopic,
+              value_template: '{{ value_json.temperature }}',
+              unit_of_measurement: '°C',
+              device_class: 'temperature',
+              device: {
+                identifiers: [uniqueId],
+                name: deviceName,
+                manufacturer: 'CloudNest',
+                model: 'ESP32 IoT Sensor',
+              },
+            },
+          },
+          {
+            topic: `${discoveryPrefix}/sensor/${uniqueId}_humidity/config`,
+            payload: {
+              name: `${deviceName} Humidity`,
+              unique_id: `${uniqueId}_humidity`,
+              state_topic: telemetryTopic,
+              value_template: '{{ value_json.humidity }}',
+              unit_of_measurement: '%',
+              device_class: 'humidity',
+              device: {
+                identifiers: [uniqueId],
+                name: deviceName,
+                manufacturer: 'CloudNest',
+                model: 'ESP32 IoT Sensor',
+              },
+            },
+          }
+        );
+      }
 
       let published = 0;
       for (const { topic, payload } of discoveryPayloads) {
@@ -384,10 +405,10 @@ async function publishHADiscovery(tenant, deviceName, deviceId) {
 }
 
 // Unpublish HA MQTT Discovery payloads by sending empty retained messages.
-// This removes the device entities from Home Assistant's UI when a device is revoked.
-async function unpublishHADiscovery(tenant, deviceId) {
+// This removes the device entities from Home Assistant's UI when a device is deleted.
+async function unpublishHADiscovery(tenant, deviceId, deviceName) {
   const mqttUrl = config.mqttUrl;
-  const topics = getDiscoveryTopics(tenant, deviceId);
+  const topics = getDiscoveryTopics(tenant, deviceId, deviceName);
 
   const client = mqtt.connect(mqttUrl, {
     clientId: `undiscovery-${Date.now()}`,
@@ -478,7 +499,7 @@ router.delete('/:slug/devices/:deviceId', requireAuth, requireRole('admin'), asy
     const db = getDb();
 
     const device = db.prepare(
-      "SELECT * FROM devices WHERE id = ? AND tenant_id = ? AND status = 'active'"
+      "SELECT * FROM devices WHERE id = ? AND tenant_id = ?"
     ).get(deviceId, req.tenant.id);
 
     if (!device) {
@@ -489,29 +510,30 @@ router.delete('/:slug/devices/:deviceId', requireAuth, requireRole('admin'), asy
 
     const tenant = db.prepare('SELECT * FROM tenants WHERE id = ?').get(req.tenant.id);
 
-    try {
-      await magistrala.disableDevice(tenant.mg_workspace_id, device.mg_client_id);
-    } catch (err) {
-      logger.warn('Magistrala device disable failed', { error: err.message });
-    }
-
-    db.prepare("UPDATE devices SET status = 'revoked' WHERE id = ?").run(deviceId);
-
-    // Unpublish HA MQTT Discovery payloads so the device entities are removed
-    // from Home Assistant's UI (clears the retained config messages)
     if (device.mg_client_id) {
       try {
-        await unpublishHADiscovery(tenant, device.mg_client_id);
+        await magistrala.disableDevice(tenant.mg_workspace_id, device.mg_client_id);
+      } catch (err) {
+        logger.warn('Magistrala device disable failed', { error: err.message });
+      }
+
+      // Unpublish HA MQTT Discovery payloads so the device entities are removed
+      // from Home Assistant's UI (clears the retained config messages)
+      try {
+        await unpublishHADiscovery(tenant, device.mg_client_id, device.name);
       } catch (err) {
         logger.warn('HA MQTT Discovery unpublish failed (non-critical)', { error: err.message });
       }
     }
 
-    logger.info('Device revoked', { slug: tenant.slug, deviceId });
+    // Permanently remove the device from the database
+    db.prepare('DELETE FROM devices WHERE id = ? AND tenant_id = ?').run(deviceId, req.tenant.id);
 
-    res.json({ message: 'Device revoked' });
+    logger.info('Device permanently deleted', { slug: tenant.slug, deviceId, name: device.name });
+
+    res.json({ message: 'Device permanently deleted' });
   } catch (err) {
-    logger.error('Device revocation failed', { error: err.message });
+    logger.error('Device deletion failed', { error: err.message });
     res.status(500).json({ error: { code: 'INTERNAL_ERROR', message: 'Internal server error' } });
   }
 });

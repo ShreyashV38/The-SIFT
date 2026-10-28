@@ -166,7 +166,7 @@ router.post('/login', async (req, res) => {
     const otpToken = jwt.sign(
       { sub: account.id, email: account.email, purpose: 'otp' },
       config.jwtSecret,
-      { expiresIn: `${config.otpExpirySeconds}s` }
+      { expiresIn: '10m' }
     );
 
     const sent = await email.sendOtp(account.email, otpCode, account.display_name);
@@ -229,7 +229,7 @@ router.post('/verify-otp', async (req, res) => {
     if (new Date(otp.expires_at) < new Date()) {
       db.prepare('UPDATE otp_codes SET used = 1 WHERE id = ?').run(otp.id);
       return res.status(401).json({
-        error: { code: 'OTP_EXPIRED', message: 'OTP has expired. Please log in again.' },
+        error: { code: 'OTP_EXPIRED', message: 'Verification code has expired (valid for 1 minute). Please click "Resend code".' },
       });
     }
 
@@ -327,9 +327,16 @@ router.post('/resend-otp', async (req, res) => {
 
     const sent = await email.sendOtp(account.email, otpCode, account.display_name);
 
+    const newOtpToken = jwt.sign(
+      { sub: account.id, email: account.email, purpose: 'otp' },
+      config.jwtSecret,
+      { expiresIn: '10m' }
+    );
+
     logger.info('OTP resent', { accountId: account.id, email: account.email, sent });
 
     res.json({
+      otpToken: newOtpToken,
       message: sent
         ? `New code sent to ${account.email.replace(/(.{2})(.*)(@.*)/, '$1***$3')}`
         : 'New code generated. Check your inbox.',

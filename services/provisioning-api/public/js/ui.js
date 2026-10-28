@@ -312,7 +312,7 @@ export function generateSketch({
  *      2. DHT sensor library for ESPx  (by beegee_tokyo) - supports ESP8266 & ESP32
  *
  *  Telemetry payload depends on DEVICE_KIND:
- *    "switch" -> {"id":"<DEVICE_ID>","state":"ON|OFF","temperature":24.5}
+ *    "switch" -> {"id":"<DEVICE_ID>","state":"ON|OFF"}
  *    "sensor" -> {"id":"<DEVICE_ID>","temperature":24.5}
  * ==========================================================================
  */
@@ -399,17 +399,15 @@ void onMessage(char* topic, byte* payload, unsigned int length) {
 void publishState() {
   char body[160];
 
-  // Refresh sensor value simulation (or read real DHT22 sensor here)
-  temperature += ((int)random(-5, 6)) / 10.0f;
-  if (temperature < 15) temperature = 15;
-  if (temperature > 35) temperature = 35;
-
   if (strcmp(DEVICE_KIND, "switch") == 0) {
-    // SWITCH mode: Sends BOTH switch state AND sensor readings
-    snprintf(body, sizeof(body), "{\\"id\\":\\"%s\\",\\"state\\":\\"%s\\",\\"temperature\\":%.1f}", 
-             DEVICE_ID, switchOn ? "ON" : "OFF", temperature);
+    // SWITCH mode: Sends ONLY switch state (NO temperature)
+    snprintf(body, sizeof(body), "{\\"id\\":\\"%s\\",\\"state\\":\\"%s\\"}", 
+             DEVICE_ID, switchOn ? "ON" : "OFF");
   } else {
     // SENSOR mode: Sends ONLY sensor readings (no button state)
+    temperature += ((int)random(-5, 6)) / 10.0f;
+    if (temperature < 15) temperature = 15;
+    if (temperature > 35) temperature = 35;
     snprintf(body, sizeof(body), "{\\"id\\":\\"%s\\",\\"temperature\\":%.1f}", 
              DEVICE_ID, temperature);
   }
@@ -583,11 +581,10 @@ function publishState() {
 
   let payloadObj;
   if (deviceKind === 'switch') {
-    // SWITCH mode: Sends BOTH switch state AND sensor readings
+    // SWITCH mode: Sends ONLY switch state (NO temperature)
     payloadObj = {
       id: deviceId,
       state: switchState,
-      temperature: currentTemp,
     };
   } else {
     // SENSOR mode: Sends ONLY sensor readings (no switch state)

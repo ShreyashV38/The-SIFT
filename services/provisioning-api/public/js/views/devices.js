@@ -59,6 +59,9 @@ export async function renderDevices(container, slug, router) {
 
   function filterDevices() {
     return allDevices.filter(dev => {
+      // Exclude revoked/deleted devices completely
+      if (dev.status === 'revoked' || dev.status === 'deleted') return false;
+
       const q = searchQuery.toLowerCase();
       const matchesSearch = !q ||
         (dev.name && dev.name.toLowerCase().includes(q));
@@ -66,10 +69,10 @@ export async function renderDevices(container, slug, router) {
       const matchesType = typeFilter === 'all' || dev.kind === typeFilter;
 
       let matchesStatus = true;
-      if (statusFilter === 'active') {
-        matchesStatus = dev.status !== 'revoked';
-      } else if (statusFilter === 'revoked') {
-        matchesStatus = dev.status === 'revoked';
+      if (statusFilter === 'online') {
+        matchesStatus = dev.status === 'online';
+      } else if (statusFilter === 'offline') {
+        matchesStatus = dev.status === 'offline';
       }
 
       return matchesSearch && matchesType && matchesStatus;
@@ -146,10 +149,11 @@ export async function renderDevices(container, slug, router) {
       btn.addEventListener('click', async function () {
         const id = this.dataset.id;
         const name = this.dataset.name;
-        if (!confirm(`Remove "${name}" from your household?`)) return;
+        if (!confirm(`Permanently delete "${name}" from your household and Home Assistant?`)) return;
         try {
           await api.revokeDevice(slug, id);
-          toast(`Removed device "${name}"`, 'info');
+          toast(`Permanently deleted device "${name}"`, 'success');
+          allDevices = allDevices.filter(d => String(d.id) !== String(id));
           if (pollId) clearInterval(pollId);
           renderDevices(container, slug, router);
         } catch (err) {
@@ -211,8 +215,8 @@ export async function renderDevices(container, slug, router) {
             <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
               <div class="filter-pills" role="group" aria-label="Filter by status">
                 <button type="button" class="filter-pill active" data-status="all">All</button>
-                <button type="button" class="filter-pill" data-status="active">Active</button>
-                <button type="button" class="filter-pill" data-status="revoked">Removed</button>
+                <button type="button" class="filter-pill" data-status="online">Online</button>
+                <button type="button" class="filter-pill" data-status="offline">Offline</button>
               </div>
 
               <select id="device-type-filter" style="width: auto; min-width: 140px;">

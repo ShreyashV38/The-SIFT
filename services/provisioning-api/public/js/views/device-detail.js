@@ -293,13 +293,13 @@ export async function renderDeviceDetail(container, slug, deviceId, router) {
   });
 
   container.querySelector('#revoke-device-btn')?.addEventListener('click', async () => {
-    if (!confirm(`Remove "${device.name}" from your household?`)) {
+    if (!confirm(`Permanently delete "${device.name}" from your household and Home Assistant?`)) {
       return;
     }
 
     try {
       await api.revokeDevice(slug, deviceId);
-      toast(`Removed "${device.name}"`, 'info');
+      toast(`Permanently deleted "${device.name}"`, 'success');
       router.navigate(`#/t/${slug}/devices`);
     } catch (err) {
       toast(err.message, 'error');
