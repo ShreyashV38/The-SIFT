@@ -35,6 +35,10 @@ function getTenantInternalHaPort(slug) {
 let k8sReachable = null;
 function checkK8s() {
   if (k8sReachable !== null) return k8sReachable;
+  if (process.env.USE_DOCKER_HA === 'true') {
+    k8sReachable = false;
+    return false;
+  }
   try {
     execSync('kubectl cluster-info', { stdio: 'ignore', timeout: 1500 });
     k8sReachable = true;

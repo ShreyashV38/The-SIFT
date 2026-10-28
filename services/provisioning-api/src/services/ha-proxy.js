@@ -80,20 +80,24 @@ function extractSlug(req) {
   return null;
 }
 
-function checkPortReady(port, host = '127.0.0.1', timeoutMs = 400) {
+function checkPortReady(port, host = '127.0.0.1', timeoutMs = 1200) {
   return new Promise((resolve) => {
-    const socket = net.createConnection({ port, host, timeout: timeoutMs }, () => {
-      socket.destroy();
+    const probe = http.request({
+      hostname: host,
+      port,
+      path: '/manifest.json',
+      method: 'GET',
+      timeout: timeoutMs,
+    }, (res) => {
+      res.resume();
       resolve(true);
     });
-    socket.on('error', () => {
-      socket.destroy();
+    probe.on('error', () => resolve(false));
+    probe.on('timeout', () => {
+      probe.destroy();
       resolve(false);
     });
-    socket.on('timeout', () => {
-      socket.destroy();
-      resolve(false);
-    });
+    probe.end();
   });
 }
 
@@ -284,11 +288,11 @@ function startHaProxy(port = process.env.HA_PROXY_PORT || 8123) {
       const internalPort = getTenantInternalHaPort(slug);
 
       // Trigger isolated deployment if not running yet
-      ensureTenantHaRunning(slug).catch((err) => {
+      await ensureTenantHaRunning(slug).catch((err) => {
         logger.debug('ensureTenantHaRunning background trigger error', { slug, error: err.message });
       });
 
-      // Check if internal HA instance is ready
+      // Check if internal HA instance is ready to serve HTTP
       const isReady = await checkPortReady(internalPort);
       if (!isReady) {
         res.writeHead(200, {
@@ -344,10 +348,13 @@ function startHaProxy(port = process.env.HA_PROXY_PORT || 8123) {
       });
 
       proxyReq.on('error', (err) => {
-        logger.warn('HA proxy request error', { slug, error: err.message });
+        logger.warn('HA proxy request error (container warming up)', { slug, error: err.message });
         if (!res.headersSent) {
-          res.writeHead(502, { 'Content-Type': 'text/html; charset=utf-8' });
-          res.end('<h1>Dashboard Gateway Error</h1><p>Home Assistant container is temporarily unavailable. Please try again.</p>');
+          res.writeHead(200, {
+            'Content-Type': 'text/html; charset=utf-8',
+            'Set-Cookie': `sift_ha_tenant=${slug}; Path=/; Max-Age=86400; SameSite=Lax`,
+          });
+          res.end(renderLoadingPage(slug));
         }
       });
 
@@ -407,6 +414,17 @@ function startHaProxy(port = process.env.HA_PROXY_PORT || 8123) {
 
   server.listen(port, () => {
     logger.info(`Multi-Tenant Home Assistant Reverse Proxy listening on port ${port}`);
+
+    // Pre-warm isolated HA instances for active households in background
+    setTimeout(() => {
+      try {
+        const db = getDb();
+        const active = db.prepare("SELECT slug FROM tenants WHERE status != 'deleted'").all();
+        for (const t of active) {
+          ensureTenantHaRunning(t.slug).catch(() => {});
+        }
+      } catch (_) {}
+    }, 1000);
   });
 
   return server;
