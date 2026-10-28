@@ -92,11 +92,16 @@ export function resolveHaUrl(slug, tenantUrl, configuredDomain) {
     ? window.location.protocol
     : 'http:';
 
-  // When accessed over a public or LAN IP (e.g. AWS EC2 13.233.82.179),
-  // <slug>.localtest.me or <slug>.<ip> cannot resolve in browser DNS.
-  // Point directly to http://<ip>:8123 where Home Assistant is listening.
+  // When accessed over a public or LAN IP (e.g. AWS EC2 13.200.107.66),
+  // route via nip.io wildcard DNS so every household gets its own isolated subdomain:
+  // http://<slug>.<ip>.nip.io:8123
   if (host && isIpAddress(host) && !isLocalOrLoopbackHost(host)) {
-    return `${protocol}//${host}:8123`;
+    return `${protocol}//${slug}.${host}.nip.io:8123`;
+  }
+
+  if (host && host.endsWith('.nip.io')) {
+    const baseNip = host.startsWith(`${slug}.`) ? host : `${slug}.${host}`;
+    return `${protocol}//${baseNip}:8123`;
   }
 
   if (tenantUrl && typeof tenantUrl === 'string' && tenantUrl.trim()) {
@@ -106,7 +111,8 @@ export function resolveHaUrl(slug, tenantUrl, configuredDomain) {
         const parsed = new URL(cleanUrl);
         if (isLocalOrLoopbackHost(parsed.hostname)) {
           const portPart = parsed.port ? `:${parsed.port}` : ':8123';
-          return `${parsed.protocol}//${slug}.${host}${portPart}`;
+          const targetHost = isIpAddress(host) ? `${slug}.${host}.nip.io` : `${slug}.${host}`;
+          return `${parsed.protocol}//${targetHost}${portPart}`;
         }
       } catch (_) {}
     }
@@ -115,7 +121,7 @@ export function resolveHaUrl(slug, tenantUrl, configuredDomain) {
 
   const domain = resolveCloudDomain(configuredDomain);
   if (isIpAddress(domain) && !isLocalOrLoopbackHost(domain)) {
-    return `${protocol}//${domain}:8123`;
+    return `${protocol}//${slug}.${domain}.nip.io:8123`;
   }
   return `http://${slug}.${domain}:8123`;
 }
@@ -326,6 +332,7 @@ export function generateSketch({
   #include <WiFi.h>
 #endif
 #include <PubSubClient.h>
+${kind === 'switch' ? '' : '#include <DHTesp.h>\n#define DHT_PIN 15'}
 
 // ---- 1. WiFi Network Configuration (2.4 GHz) ----
 const char* WIFI_SSID     = "${ssid}";
@@ -360,8 +367,7 @@ const unsigned long PUBLISH_EVERY_MS = ${publishIntervalMs};
 
 WiFiClient net;
 PubSubClient mqtt(net);
-bool switchOn = false;
-float temperature = 24.0;
+${kind === 'switch' ? 'bool switchOn = false;' : 'DHTesp dht;'}
 unsigned long lastPublish = 0;
 
 void publishState();
@@ -388,29 +394,30 @@ void onMessage(char* topic, byte* payload, unsigned int length) {
   memcpy(msg, payload, n);
   msg[n] = 0;
   Serial.printf("Cloud command received: %s\\n", msg);
-  if (strcmp(DEVICE_KIND, "switch") != 0) return;
-  if (strcmp(msg, "ON") == 0) switchOn = true;
+${kind === 'switch' ? `  if (strcmp(msg, "ON") == 0) switchOn = true;
   else if (strcmp(msg, "OFF") == 0) switchOn = false;
   else return;
   digitalWrite(LED_BUILTIN, switchOn ? LED_ACTIVE_STATE : LED_INACTIVE_STATE);
-  publishState();
+  publishState();` : '  // Sensor-only device: commands ignored'}
 }
 
 void publishState() {
   char body[160];
-
-  if (strcmp(DEVICE_KIND, "switch") == 0) {
-    // SWITCH mode: Sends ONLY switch state (NO temperature)
-    snprintf(body, sizeof(body), "{\\"id\\":\\"%s\\",\\"state\\":\\"%s\\"}", 
-             DEVICE_ID, switchOn ? "ON" : "OFF");
-  } else {
-    // SENSOR mode: Sends ONLY sensor readings (no button state)
-    temperature += ((int)random(-5, 6)) / 10.0f;
-    if (temperature < 15) temperature = 15;
-    if (temperature > 35) temperature = 35;
-    snprintf(body, sizeof(body), "{\\"id\\":\\"%s\\",\\"temperature\\":%.1f}", 
-             DEVICE_ID, temperature);
+${kind === 'switch' ? `  // SWITCH mode: Sends ONLY real switch state (NO fake temperature)
+  snprintf(body, sizeof(body), "{\\"id\\":\\"%s\\",\\"state\\":\\"%s\\"}",
+           DEVICE_ID, switchOn ? "ON" : "OFF");` : `  // SENSOR mode: Read real physical DHT sensor — only publish if real data is available
+  TempAndHumidity data = dht.getTempAndHumidity();
+  if (isnan(data.temperature)) {
+    Serial.println("No valid reading from DHT sensor — skipping publish");
+    return;
   }
+  if (!isnan(data.humidity)) {
+    snprintf(body, sizeof(body), "{\\"id\\":\\"%s\\",\\"temperature\\":%.1f,\\"humidity\\":%.1f}",
+             DEVICE_ID, data.temperature, data.humidity);
+  } else {
+    snprintf(body, sizeof(body), "{\\"id\\":\\"%s\\",\\"temperature\\":%.1f}",
+             DEVICE_ID, data.temperature);
+  }`}
 
   bool ok = mqtt.publish(TOPIC_TELEMETRY, body);
   Serial.printf("Published (%s): %s\\n", ok ? "ok" : "FAILED", body);
@@ -437,7 +444,7 @@ void setup() {
   Serial.begin(115200);
   pinMode(LED_BUILTIN, OUTPUT);
   digitalWrite(LED_BUILTIN, LED_INACTIVE_STATE);
-  connectWifi();
+${kind === 'switch' ? '' : '  dht.setup(DHT_PIN, DHTesp::DHT22);\n'}  connectWifi();
   mqtt.setServer(MQTT_HOST, MQTT_PORT);
   mqtt.setBufferSize(512);
   mqtt.setKeepAlive(30);

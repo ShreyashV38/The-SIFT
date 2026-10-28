@@ -44,31 +44,53 @@ function computeDeviceStatus(device, offlineAfterSeconds = config.offlineAfterSe
   return 'pending';
 }
 
-function parseLastValue(lastValueJson) {
+function parseLastValue(lastValueJson, kind = 'sensor') {
   if (!lastValueJson) return null;
   try {
-    return JSON.parse(lastValueJson);
+    const parsed = JSON.parse(lastValueJson);
+    if (!parsed || typeof parsed !== 'object') return null;
+
+    if (kind === 'switch') {
+      // Switch devices ONLY report switch state — strip any temperature/humidity fields
+      const stateVal = parsed.state !== undefined
+        ? parsed.state
+        : (parsed.switch !== undefined ? (parsed.switch ? 'ON' : 'OFF') : undefined);
+      if (stateVal === undefined) return null;
+      return { state: String(stateVal).toUpperCase() };
+    }
+
+    // Sensor devices ONLY report real sensor readings — strip switch state fields
+    const clean = {};
+    for (const [k, v] of Object.entries(parsed)) {
+      if (k === 'id' || k === 'deviceId' || k === 'state' || k === 'switch') continue;
+      if (v !== null && v !== undefined && v !== '' && !Number.isNaN(Number(v))) {
+        clean[k] = Number(v);
+      }
+    }
+    return Object.keys(clean).length > 0 ? clean : null;
   } catch {
-    return { raw: lastValueJson };
+    return null;
   }
 }
 
 function formatDevice(device) {
+  const kind = device.kind || 'sensor';
   return {
     id: device.id,
     name: device.name,
-    kind: device.kind || 'sensor',
+    kind,
     mgClientId: device.mg_client_id,
     status: computeDeviceStatus(device),
     firstConnectedAt: device.first_connected_at || null,
     lastSeenAt: device.last_seen_at || null,
-    lastValue: parseLastValue(device.last_value_json),
+    lastValue: parseLastValue(device.last_value_json, kind),
     createdAt: device.created_at,
   };
 }
 
 // GET /v1/tenants/:slug/devices
 router.get('/:slug/devices', requireAuth, requireRole('member'), (req, res) => {
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
   const db = getDb();
   const rawDevices = db.prepare(`
     SELECT id, name, kind, mg_client_id, status, created_at, first_connected_at, last_seen_at, last_value_json
@@ -94,12 +116,13 @@ router.get('/:slug/devices', requireAuth, requireRole('member'), (req, res) => {
 
 // GET /v1/tenants/:slug/devices/:id/status
 router.get('/:slug/devices/:id/status', requireAuth, requireRole('member'), (req, res) => {
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
   const deviceId = parseInt(req.params.id, 10);
   const db = getDb();
 
   const device = db.prepare(`
     SELECT id, name, kind, mg_client_id, status, created_at, first_connected_at, last_seen_at, last_value_json
-    FROM devices WHERE id = ? AND tenant_id = ?
+    FROM devices WHERE id = ? AND tenant_id = ? AND status != 'deleted' AND status != 'revoked'
   `).get(deviceId, req.tenant.id);
 
   if (!device) {
@@ -578,7 +601,12 @@ router.post('/:slug/devices/:deviceId/test-command', requireAuth, requireRole('m
             error: { code: 'MQTT_ERROR', message: 'Failed to deliver command to device' },
           });
         }
-        res.json({ message: `Command ${state} sent successfully to ${device.name}` });
+        // Immediately reflect switch state in DB so portal UI updates without delay
+        try {
+          const statePayload = JSON.stringify({ id: device.mg_client_id || String(device.id), state });
+          db.prepare('UPDATE devices SET last_value_json = ? WHERE id = ?').run(statePayload, device.id);
+        } catch (_) {}
+        res.json({ message: `Command ${state} sent successfully to ${device.name}`, state });
       });
     });
 
@@ -617,7 +645,7 @@ function handleInternalDevicesSeen(req, res) {
   `);
 
   const lookupStmt = db.prepare(`
-    SELECT d.id
+    SELECT d.id, d.kind
     FROM devices d
     JOIN tenants t ON d.tenant_id = t.id
     WHERE t.slug = ? AND (d.id = ? OR d.mg_client_id = ?) AND d.status = 'active'
@@ -639,9 +667,14 @@ function handleInternalDevicesSeen(req, res) {
 
       const reportTime = ts || new Date().toISOString();
       let valueJson = null;
-      if (values) {
+      if (values && typeof values === 'object') {
         try {
-          valueJson = JSON.stringify(values).slice(0, 2048);
+          if (found.kind === 'switch') {
+            const st = values.state !== undefined ? String(values.state).toUpperCase() : 'OFF';
+            valueJson = JSON.stringify({ id: deviceId, state: st });
+          } else {
+            valueJson = JSON.stringify(values).slice(0, 2048);
+          }
         } catch {
           valueJson = null;
         }

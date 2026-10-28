@@ -28,6 +28,7 @@ async function request(path, options = {}) {
     ...options,
     method,
     headers,
+    cache: 'no-store',
     credentials: 'same-origin', // Sends sift_session cookie
   };
 

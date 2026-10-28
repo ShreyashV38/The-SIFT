@@ -13,6 +13,61 @@ import {
   formatTierName,
 } from '../ui.js';
 
+function buildRecentDevicesHtml(recentDevices, slug) {
+  if (recentDevices.length === 0) {
+    return `
+      <div class="empty-state" style="padding: var(--space-2xl) var(--space-lg);">
+        <p style="font-size: 0.84375rem; color: var(--text-muted); margin-bottom: var(--space-md);">
+          No smart devices have been added to your household yet.
+        </p>
+        <a href="#/t/${slug}/devices/new" class="btn btn-primary btn-sm">+ Add First Device</a>
+      </div>
+    `;
+  }
+
+  return `
+    <div class="table-container" style="border: none; border-radius: 0;">
+      <table>
+        <thead>
+          <tr>
+            <th>Device Name</th>
+            <th>Type</th>
+            <th>Status</th>
+            <th>Last Seen</th>
+            <th style="text-align: right;">Action</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${recentDevices.map(dev => {
+            let statusPill = '';
+            if (dev.status === 'online') {
+              statusPill = `<span class="badge badge-online"><span class="led-dot led-emerald"></span>Online</span>`;
+            } else if (dev.status === 'pending') {
+              statusPill = `<span class="badge badge-pending"><span class="led-dot led-amber"></span>Waiting for data</span>`;
+            } else {
+              statusPill = `<span class="badge badge-offline"><span class="led-dot led-muted"></span>Offline</span>`;
+            }
+
+            const typeLabel = dev.kind === 'switch' ? 'Switch' : 'Sensor';
+
+            return `
+              <tr>
+                <td><strong style="color: var(--text-main); font-weight: 600;">${dev.name}</strong></td>
+                <td><span class="badge badge-role">${typeLabel}</span></td>
+                <td>${statusPill}</td>
+                <td class="mono" style="font-size: 0.75rem;">${formatRelativeTime(dev.lastSeenAt)}</td>
+                <td style="text-align: right;">
+                  <a href="#/t/${slug}/devices/${dev.id}" class="btn btn-secondary btn-sm">View</a>
+                </td>
+              </tr>
+            `;
+          }).join('')}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
 export async function renderHome(container, slug, router) {
   container.innerHTML = `
     <div style="text-align: center; padding: var(--space-4xl) var(--space-xl);">
@@ -109,18 +164,18 @@ export async function renderHome(container, slug, router) {
         </div>
 
         <!-- Card 2: Smart Devices -->
-        <div class="stat-card">
+        <div class="stat-card" id="home-devices-card">
           <div class="stat-label">
             <span>Smart Devices</span>
-            <span class="mono">${onlineCount} ONLINE</span>
+            <span class="mono" id="home-online-badge">${onlineCount} ONLINE</span>
           </div>
           <div class="stat-value">
-            ${activeDevices.length} <span style="font-size: 0.95rem; color: var(--text-muted); font-weight: 400;">/ ${maxDevices}</span>
+            <span id="home-device-count">${activeDevices.length}</span> <span style="font-size: 0.95rem; color: var(--text-muted); font-weight: 400;">/ ${maxDevices}</span>
           </div>
           <div class="quota-bar">
-            <div class="quota-fill emerald" style="width: ${devicePct}%;"></div>
+            <div class="quota-fill emerald" id="home-device-bar" style="width: ${devicePct}%;"></div>
           </div>
-          <div class="stat-hint">${onlineCount} currently online</div>
+          <div class="stat-hint" id="home-online-hint">${onlineCount} currently online</div>
         </div>
 
         <!-- Card 3: Household Members -->
@@ -224,64 +279,58 @@ export async function renderHome(container, slug, router) {
             </p>
           </div>
           <div style="display: flex; gap: 8px;">
-            <a href="#/t/${slug}/devices" class="btn btn-secondary btn-sm">View All (${activeDevices.length})</a>
+            <a href="#/t/${slug}/devices" id="home-view-all-btn" class="btn btn-secondary btn-sm">View All (${activeDevices.length})</a>
             <a href="#/t/${slug}/devices/new" class="btn btn-primary btn-sm">+ Add Device</a>
           </div>
         </div>
 
-        ${recentDevices.length === 0 ? `
-          <div class="empty-state" style="padding: var(--space-2xl) var(--space-lg);">
-            <p style="font-size: 0.84375rem; color: var(--text-muted); margin-bottom: var(--space-md);">
-              No smart devices have been added to your household yet.
-            </p>
-            <a href="#/t/${slug}/devices/new" class="btn btn-primary btn-sm">+ Add First Device</a>
-          </div>
-        ` : `
-          <div class="table-container" style="border: none; border-radius: 0;">
-            <table>
-              <thead>
-                <tr>
-                  <th>Device Name</th>
-                  <th>Type</th>
-                  <th>Status</th>
-                  <th>Last Seen</th>
-                  <th style="text-align: right;">Action</th>
-                </tr>
-              </thead>
-              <tbody>
-                ${recentDevices.map(dev => {
-                  let statusPill = '';
-                  if (dev.status === 'online') {
-                    statusPill = `<span class="badge badge-online"><span class="led-dot led-emerald"></span>Online</span>`;
-                  } else if (dev.status === 'pending') {
-                    statusPill = `<span class="badge badge-pending"><span class="led-dot led-amber"></span>Waiting for data</span>`;
-                  } else if (dev.status === 'revoked') {
-                    statusPill = `<span class="badge badge-revoked"><span class="led-dot led-rose"></span>Removed</span>`;
-                  } else {
-                    statusPill = `<span class="badge badge-offline"><span class="led-dot led-muted"></span>Offline</span>`;
-                  }
-
-                  const typeLabel = dev.kind === 'switch' ? 'Switch' : 'Sensor';
-
-                  return `
-                    <tr>
-                      <td><strong style="color: var(--text-main); font-weight: 600;">${dev.name}</strong></td>
-                      <td><span class="badge badge-role">${typeLabel}</span></td>
-                      <td>${statusPill}</td>
-                      <td class="mono" style="font-size: 0.75rem;">${formatRelativeTime(dev.lastSeenAt)}</td>
-                      <td style="text-align: right;">
-                        <a href="#/t/${slug}/devices/${dev.id}" class="btn btn-secondary btn-sm">View</a>
-                      </td>
-                    </tr>
-                  `;
-                }).join('')}
-              </tbody>
-            </table>
-          </div>
-        `}
+        <div id="home-recent-devices-wrapper">
+          ${buildRecentDevicesHtml(recentDevices, slug)}
+        </div>
       </div>
     </div>
   `;
+
+  // ---- Live polling: silently refresh Overview device stats & table every 2 seconds ----
+  const routeHash = window.location.hash;
+  let inFlight = false;
+  const pollId = setInterval(async () => {
+    if (window.location.hash !== routeHash || !container.querySelector('#home-recent-devices-wrapper')) {
+      clearInterval(pollId);
+      return;
+    }
+    if (inFlight || document.hidden) return;
+    inFlight = true;
+
+    try {
+      const latestData = await api.getDevices(slug);
+      if (window.location.hash !== routeHash) return;
+
+      const allLatest = (latestData.devices || []).filter(d => d.status !== 'revoked' && d.status !== 'deleted');
+      const latestOnline = allLatest.filter(d => d.status === 'online').length;
+      const latestPct = Math.min(100, Math.round((allLatest.length / maxDevices) * 100));
+      const latestRecent = allLatest.slice(0, 5);
+
+      const onlineBadgeEl = container.querySelector('#home-online-badge');
+      const countEl = container.querySelector('#home-device-count');
+      const barEl = container.querySelector('#home-device-bar');
+      const hintEl = container.querySelector('#home-online-hint');
+      const viewAllEl = container.querySelector('#home-view-all-btn');
+      const tableWrapper = container.querySelector('#home-recent-devices-wrapper');
+
+      if (onlineBadgeEl) onlineBadgeEl.textContent = `${latestOnline} ONLINE`;
+      if (countEl) countEl.textContent = `${allLatest.length}`;
+      if (barEl) barEl.style.width = `${latestPct}%`;
+      if (hintEl) hintEl.textContent = `${latestOnline} currently online`;
+      if (viewAllEl) viewAllEl.textContent = `View All (${allLatest.length})`;
+      if (tableWrapper) tableWrapper.innerHTML = buildRecentDevicesHtml(latestRecent, slug);
+    } catch {
+      // Silent retry on next tick
+    } finally {
+      inFlight = false;
+    }
+  }, 2000);
+  router.registerInterval?.(pollId);
 
   container.querySelector('#copy-ha-url')?.addEventListener('click', function () {
     copyToClipboard(haUrl, this, 'Copy Link');

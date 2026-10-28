@@ -17,6 +17,7 @@ const { safeCompare } = require('./middleware/auth');
 const tenantsRouter = require('./routes/tenants');
 const { accountsRouter, membersRouter } = require('sift-identity-service');
 const { devicesRouter, handleInternalDevicesSeen, handleInternalObservers } = require('sift-iot-broker-service');
+const { startHaProxy } = require('./services/ha-proxy');
 
 const app = express();
 
@@ -233,6 +234,12 @@ if (require.main === module && process.env.NODE_ENV !== 'test') {
     logger.info(`CloudNest Internal API listening on port ${config.internalPort}`);
   });
 
+  try {
+    startHaProxy();
+  } catch (err) {
+    logger.warn('Failed to start Multi-Tenant HA Reverse Proxy', { error: err.message });
+  }
+
   if (config.mqttUrl) {
     try {
       const mqtt = require('mqtt');
@@ -256,18 +263,36 @@ if (require.main === module && process.env.NODE_ENV !== 'test') {
 
           const db = getDb();
           const found = db.prepare(
-            "SELECT id FROM devices WHERE (id = ? OR mg_client_id = ?) AND status = 'active'"
+            "SELECT id, kind, mg_client_id FROM devices WHERE (id = ? OR mg_client_id = ?) AND status = 'active'"
           ).get(devId, devId);
 
           if (found) {
             const now = new Date().toISOString();
+            let cleanedPayload = payload.toString().slice(0, 2048);
+            if (found.kind === 'switch') {
+              const swState = (body.state !== undefined && body.state !== null)
+                ? String(body.state).toUpperCase()
+                : (body.status !== undefined && body.status !== null)
+                  ? String(body.status).toUpperCase()
+                  : 'OFF';
+              cleanedPayload = JSON.stringify({
+                id: found.mg_client_id || String(found.id),
+                state: swState === 'ON' ? 'ON' : 'OFF',
+              });
+            } else if (found.kind === 'sensor') {
+              const sensorData = { id: found.mg_client_id || String(found.id) };
+              if (typeof body.temperature === 'number' && !isNaN(body.temperature)) sensorData.temperature = body.temperature;
+              if (typeof body.humidity === 'number' && !isNaN(body.humidity)) sensorData.humidity = body.humidity;
+              cleanedPayload = JSON.stringify(sensorData);
+            }
+
             db.prepare(`
               UPDATE devices
               SET first_connected_at = COALESCE(first_connected_at, ?),
                   last_seen_at = ?,
                   last_value_json = ?
               WHERE id = ?
-            `).run(now, now, payload.toString().slice(0, 2048), found.id);
+            `).run(now, now, cleanedPayload, found.id);
             logger.info('Device telemetry recorded via MQTT observer', { deviceId: found.id, mgClientId: devId });
           }
         } catch {

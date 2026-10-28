@@ -246,23 +246,18 @@ void reconnectMQTT() {
 void publishState() {
   char body[160];
 
-  // Refresh sensor value: read the real DHT22 sensor, and fall back to the
-  // random-walk simulation if the read fails.
-  TempAndHumidity data = dht.getTempAndHumidity();
-  if (!isnan(data.temperature)) {
-    temperature = data.temperature;
-  } else {
-    temperature += ((int)random(-5, 6)) / 10.0f;
-    if (temperature < 15) temperature = 15;
-    if (temperature > 35) temperature = 35;
-  }
-
   if (strcmp(DEVICE_KIND, "switch") == 0) {
     // SWITCH mode: Sends ONLY switch state (NO temperature)
     snprintf(body, sizeof(body), "{\"id\":\"%s\",\"state\":\"%s\"}", 
              DEVICE_ID, switchOn ? "ON" : "OFF");
   } else {
-    // SENSOR mode: Sends ONLY sensor readings (no button state)
+    // SENSOR mode: Read real DHT22 sensor — only publish if real data is available
+    TempAndHumidity data = dht.getTempAndHumidity();
+    if (isnan(data.temperature)) {
+      Serial.println("No valid reading from DHT sensor — skipping publish");
+      return;
+    }
+    temperature = data.temperature;
     snprintf(body, sizeof(body), "{\"id\":\"%s\",\"temperature\":%.1f}", 
              DEVICE_ID, temperature);
   }

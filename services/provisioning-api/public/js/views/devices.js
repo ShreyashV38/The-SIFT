@@ -5,16 +5,20 @@
 import { api } from '../api.js';
 import { toast, formatRelativeTime, renderSpinner } from '../ui.js';
 
-const LIVE_POLL_INTERVAL_MS = 3000;
+const LIVE_POLL_INTERVAL_MS = 2000;
 
 // Compact one-line summary of a device's latest telemetry payload
 function formatLatestReading(dev) {
   const v = dev.lastValue;
   if (!v || typeof v !== 'object') return '—';
+  if (dev.kind === 'switch') {
+    if (v.state !== undefined) return `<strong>${String(v.state).toUpperCase()}</strong>`;
+    return '—';
+  }
+  if (!dev.lastSeenAt) return '—';
   const parts = [];
-  if (v.state !== undefined) parts.push(`<strong>${v.state}</strong>`);
-  if (v.temperature !== undefined) parts.push(`${v.temperature} °C`);
-  if (v.humidity !== undefined) parts.push(`${v.humidity} %`);
+  if (v.temperature !== undefined && !Number.isNaN(Number(v.temperature))) parts.push(`${Number(v.temperature)} °C`);
+  if (v.humidity !== undefined && !Number.isNaN(Number(v.humidity))) parts.push(`${Number(v.humidity)} %`);
   return parts.length ? parts.join(' · ') : '—';
 }
 

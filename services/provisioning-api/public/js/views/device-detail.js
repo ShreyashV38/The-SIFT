@@ -26,7 +26,7 @@ function formatReadingUnit(key) {
   return '';
 }
 
-const LIVE_POLL_INTERVAL_MS = 3000;
+const LIVE_POLL_INTERVAL_MS = 2000;
 
 function buildStatusPill(device) {
   if (device.status === 'online') {
@@ -43,19 +43,40 @@ function buildStatusPill(device) {
 
 function buildReadingsHtml(device) {
   const readingItems = [];
+  const isSwitch = device.kind === 'switch';
+
   if (device.lastValue && typeof device.lastValue === 'object') {
-    Object.keys(device.lastValue).forEach(key => {
-      if (key !== 'id' && key !== 'deviceId') {
+    if (isSwitch) {
+      // Switch devices ONLY display Switch State — never display temperature or humidity
+      const stateVal = device.lastValue.state !== undefined
+        ? device.lastValue.state
+        : (device.lastValue.switch !== undefined ? (device.lastValue.switch ? 'ON' : 'OFF') : undefined);
+      if (stateVal !== undefined) {
         readingItems.push({
-          label: formatReadingLabel(key),
-          val: device.lastValue[key],
-          unit: formatReadingUnit(key),
+          label: 'Switch State',
+          val: String(stateVal).toUpperCase(),
+          unit: '',
         });
       }
-    });
+    } else if (device.lastSeenAt) {
+      // Sensor devices ONLY display real sensor readings when the device has actually sent data
+      Object.keys(device.lastValue).forEach(key => {
+        const k = key.toLowerCase();
+        if (k === 'id' || k === 'deviceid' || k === 'state' || k === 'switch') return;
+        const val = device.lastValue[key];
+        if (val !== null && val !== undefined && val !== '' && !Number.isNaN(Number(val))) {
+          readingItems.push({
+            label: formatReadingLabel(key),
+            val: Number(val),
+            unit: formatReadingUnit(key),
+          });
+        }
+      });
+    }
   }
 
-  const bottomMargin = device.kind === 'switch' && device.status !== 'revoked' ? 'var(--space-lg)' : '0';
+  const bottomMargin = isSwitch && device.status !== 'revoked' ? 'var(--space-lg)' : '0';
+  const hintText = device.status === 'online' ? 'Live reading' : 'Last reported reading';
 
   if (readingItems.length > 0) {
     return `
@@ -66,26 +87,17 @@ function buildReadingsHtml(device) {
             <div class="stat-value">
               ${item.val} <span style="font-size: 0.9rem; color: var(--text-muted);">${item.unit}</span>
             </div>
-            <div class="stat-hint">Live reading</div>
+            <div class="stat-hint">${hintText}</div>
           </div>
         `).join('')}
       </div>
     `;
   }
 
-  if (device.lastValue) {
-    return `
-      <div style="margin-bottom: ${bottomMargin}; padding: var(--space-md); background: var(--bg-surface); border-radius: var(--radius-sm); border: 1px solid var(--border);">
-        <div class="data-label">Current State</div>
-        <div class="data-value mono" style="font-size: 1.25rem; color: var(--led-emerald);">${String(device.lastValue)}</div>
-      </div>
-    `;
-  }
-
   return `
-    <div class="empty-state" style="padding: var(--space-xl) var(--space-md);">
+    <div class="empty-state" style="padding: var(--space-xl) var(--space-md); margin-bottom: ${bottomMargin};">
       <p style="color: var(--text-muted); font-size: 0.875rem; margin-bottom: 0;">
-        Waiting for this device to send its first reading.
+        Waiting for this device to send its first real reading.
       </p>
     </div>
   `;
@@ -205,20 +217,19 @@ export async function renderDeviceDetail(container, slug, deviceId, router) {
     </div>
   `;
 
-  // ---- Live polling: silently refresh status & telemetry every 3 seconds ----
+  // ---- Live polling: silently refresh status & telemetry every 2 seconds ----
   const routeHash = window.location.hash;
   let lastStatus = device.status;
   let lastReadingsKey = JSON.stringify(device.lastValue ?? null);
   let lastSeenAt = device.lastSeenAt;
   let inFlight = false;
 
-  const pollId = setInterval(async () => {
-    // Self-cancel if the view is gone (router also clears this on navigation)
+  async function refreshLiveState(force = false) {
     if (window.location.hash !== routeHash || !container.querySelector('#device-live-readings')) {
       clearInterval(pollId);
       return;
     }
-    if (inFlight || document.hidden) return;
+    if ((inFlight && !force) || document.hidden) return;
     inFlight = true;
 
     try {
@@ -233,13 +244,13 @@ export async function renderDeviceDetail(container, slug, deviceId, router) {
       if (latest.lastSeenAt) lastSeenAt = latest.lastSeenAt;
       if (updatedEl) updatedEl.textContent = `Last updated: ${formatRelativeTime(lastSeenAt)}`;
 
-      if (pillEl && latest.status !== lastStatus) {
+      if (pillEl && (latest.status !== lastStatus || force)) {
         lastStatus = latest.status;
         pillEl.innerHTML = buildStatusPill(latest);
       }
 
-      const readingsKey = JSON.stringify(latest.lastValue ?? null);
-      if (readingsEl && readingsKey !== lastReadingsKey) {
+      const readingsKey = JSON.stringify({ v: latest.lastValue ?? null, s: latest.status });
+      if (readingsEl && (readingsKey !== lastReadingsKey || force)) {
         lastReadingsKey = readingsKey;
         readingsEl.innerHTML = buildReadingsHtml({ ...device, ...latest });
       }
@@ -248,13 +259,20 @@ export async function renderDeviceDetail(container, slug, deviceId, router) {
     } finally {
       inFlight = false;
     }
-  }, LIVE_POLL_INTERVAL_MS);
+  }
+
+  const pollId = setInterval(() => refreshLiveState(false), LIVE_POLL_INTERVAL_MS);
   router.registerInterval?.(pollId);
 
   container.querySelector('#cmd-on-btn')?.addEventListener('click', async () => {
     try {
+      const readingsEl = container.querySelector('#device-live-readings');
+      if (readingsEl) {
+        readingsEl.innerHTML = buildReadingsHtml({ ...device, status: lastStatus, lastValue: { state: 'ON' } });
+      }
       await api.sendTestCommand(slug, deviceId, 'ON');
       toast(`Turned ON "${device.name}"`, 'success');
+      await refreshLiveState(true);
     } catch (err) {
       toast(err.message, 'error');
     }
@@ -262,8 +280,13 @@ export async function renderDeviceDetail(container, slug, deviceId, router) {
 
   container.querySelector('#cmd-off-btn')?.addEventListener('click', async () => {
     try {
+      const readingsEl = container.querySelector('#device-live-readings');
+      if (readingsEl) {
+        readingsEl.innerHTML = buildReadingsHtml({ ...device, status: lastStatus, lastValue: { state: 'OFF' } });
+      }
       await api.sendTestCommand(slug, deviceId, 'OFF');
       toast(`Turned OFF "${device.name}"`, 'success');
+      await refreshLiveState(true);
     } catch (err) {
       toast(err.message, 'error');
     }
