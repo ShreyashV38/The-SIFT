@@ -167,11 +167,11 @@ export async function renderAddDevice(container, slug, router) {
                 </div>
                 <div style="flex: 1;">
                   <div style="display: flex; align-items: center; justify-content: space-between; gap: 6px; margin-bottom: 4px;">
-                    <strong style="color: var(--text-main); font-size: 0.875rem;">ESP32 Microcontroller</strong>
+                    <strong style="color: var(--text-main); font-size: 0.875rem;">ESP32 / ESP8266 Hardware</strong>
                     <span class="badge badge-role">HARDWARE</span>
                   </div>
                   <div style="font-size: 0.78125rem; color: var(--text-secondary);">
-                    Download a ready-to-upload Arduino sketch for a physical ESP32 board over Wi-Fi.
+                    Download a ready-to-upload Arduino sketch for physical ESP32 or ESP8266 boards over Wi-Fi.
                   </div>
                 </div>
               </label>
@@ -309,7 +309,7 @@ export async function renderAddDevice(container, slug, router) {
             <p style="font-size: 0.84375rem; margin-bottom: 0;">
               ${isVirtual
                 ? 'Download the two files below into the same folder on your computer to run your virtual smart device.'
-                : 'Enter your Wi-Fi details and download the ready-to-upload Arduino sketch for your ESP32 board.'}
+                : 'Enter your Wi-Fi details and download the ready-to-upload Arduino sketch for your ESP32 or ESP8266 board.'}
             </p>
           </div>
           <span class="badge badge-role">${dev.kind === 'switch' ? 'Switch' : 'Sensor'}</span>
@@ -361,7 +361,7 @@ export async function renderAddDevice(container, slug, router) {
 
             <div style="display: flex; gap: 10px; flex-wrap: wrap; margin-top: var(--space-md);">
               <button type="button" id="download-sketch-btn" class="btn btn-primary">
-                Download ESP32 Sketch (sift-device.ino)
+                Download Sketch (sift-device.ino)
               </button>
             </div>
 
@@ -529,7 +529,7 @@ export async function renderAddDevice(container, slug, router) {
             <ol style="margin-left: 1.25rem; font-size: 0.84375rem; line-height: 1.85; color: var(--text-secondary); margin-bottom: 0;">
               <li>Open <code>sift-device.ino</code> in <strong>Arduino IDE</strong>.</li>
               <li>Install the required libraries listed above (one-time setup).</li>
-              <li>Select your ESP32 board and USB port under the <em>Tools</em> menu.</li>
+              <li>Select your ESP32 or ESP8266 board and USB port under the <em>Tools</em> menu.</li>
               <li>Click <strong>Upload</strong> to flash the sketch to your board.</li>
             </ol>
           </div>

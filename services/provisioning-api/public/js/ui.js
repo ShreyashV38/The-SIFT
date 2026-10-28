@@ -301,21 +301,30 @@ export function generateSketch({
   return `// The-SIFT Cloud Hardware Firmware for: ${deviceName} (${deviceKind})
 /*
  * ==========================================================================
- *  REQUIRED LIBRARIES — install these in your IDE BEFORE compiling
+ *  SUPPORTED BOARDS:
+ *    - ESP8266 (NodeMCU, Wemos D1 Mini, ESP-12, etc.)
+ *    - ESP32 (DevKit, NodeMCU-32S, ESP32-WROOM, etc.)
+ *    The sketch auto-detects your board and includes the correct Wi-Fi library!
  * ==========================================================================
- *  Arduino IDE:
+ *  REQUIRED LIBRARIES — install these in your Arduino IDE BEFORE compiling:
  *    Sketch -> Include Library -> Manage Libraries...
- *    (or click the Library Manager icon in the left sidebar),
- *    then search for and install:
  *      1. PubSubClient                 (by Nick O'Leary)
- *      2. DHT sensor library for ESPx  (by beegee_tokyo)
+ *      2. DHT sensor library for ESPx  (by beegee_tokyo) - supports ESP8266 & ESP32
  *
  *  Telemetry payload depends on DEVICE_KIND:
  *    "switch" -> {"id":"<DEVICE_ID>","state":"ON|OFF","temperature":24.5}
  *    "sensor" -> {"id":"<DEVICE_ID>","temperature":24.5}
  * ==========================================================================
  */
-#include <WiFi.h>
+
+// Dual-Board Compatibility: Automatically selects ESP8266 or ESP32 Wi-Fi library
+#if defined(ESP8266)
+  #include <ESP8266WiFi.h>
+#elif defined(ESP32)
+  #include <WiFi.h>
+#else
+  #include <WiFi.h>
+#endif
 #include <PubSubClient.h>
 
 // ---- 1. WiFi Network Configuration (2.4 GHz) ----
@@ -336,6 +345,17 @@ const unsigned long PUBLISH_EVERY_MS = ${publishIntervalMs};
 
 #ifndef LED_BUILTIN
 #define LED_BUILTIN 2
+#endif
+
+// Board-specific on-board LED active polarity
+#if defined(ESP8266)
+  // ESP8266 NodeMCU/ESP-12 built-in LED is active LOW
+  #define LED_ACTIVE_STATE LOW
+  #define LED_INACTIVE_STATE HIGH
+#else
+  // ESP32 DevKit built-in LED is active HIGH
+  #define LED_ACTIVE_STATE HIGH
+  #define LED_INACTIVE_STATE LOW
 #endif
 
 WiFiClient net;
@@ -372,7 +392,7 @@ void onMessage(char* topic, byte* payload, unsigned int length) {
   if (strcmp(msg, "ON") == 0) switchOn = true;
   else if (strcmp(msg, "OFF") == 0) switchOn = false;
   else return;
-  digitalWrite(LED_BUILTIN, switchOn ? HIGH : LOW);
+  digitalWrite(LED_BUILTIN, switchOn ? LED_ACTIVE_STATE : LED_INACTIVE_STATE);
   publishState();
 }
 
@@ -418,6 +438,7 @@ void connectMqtt() {
 void setup() {
   Serial.begin(115200);
   pinMode(LED_BUILTIN, OUTPUT);
+  digitalWrite(LED_BUILTIN, LED_INACTIVE_STATE);
   connectWifi();
   mqtt.setServer(MQTT_HOST, MQTT_PORT);
   mqtt.setBufferSize(512);

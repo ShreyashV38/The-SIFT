@@ -93,8 +93,8 @@ export function renderHelp(container) {
             </div>
           </li>
           <li>
-            <strong>If using a physical ESP32 board:</strong>
-            Enter your 2.4 GHz Wi-Fi name and password, download <code>sift-device.ino</code>, and upload it in <strong>Arduino IDE</strong> (with the <code>esp32</code> board package and the libraries below installed).
+            <strong>If using a physical ESP8266 or ESP32 board:</strong>
+            Enter your 2.4 GHz Wi-Fi name and password, download <code>sift-device.ino</code>, and upload it in <strong>Arduino IDE</strong> (the sketch automatically detects whether you compile for ESP8266 or ESP32).
             ${renderRequiredLibrariesCallout('margin: 8px 0;')}
             <div style="margin-top: 6px; font-size: 0.8125rem; color: var(--text-muted);">
               Arduino ESP32 Board Manager URL:

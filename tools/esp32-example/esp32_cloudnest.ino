@@ -38,7 +38,14 @@
  * 3. Run in Wokwi simulator (WiFi: "Wokwi-GUEST", password: "")
  */
 
-#include <WiFi.h>
+// Dual-Board Compatibility: Auto-detects ESP8266 vs ESP32 board
+#if defined(ESP8266)
+  #include <ESP8266WiFi.h>
+#elif defined(ESP32)
+  #include <WiFi.h>
+#else
+  #include <WiFi.h>
+#endif
 #include <PubSubClient.h>
 #include <ArduinoJson.h>
 #include <DHTesp.h>
