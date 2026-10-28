@@ -357,7 +357,7 @@ $env:TB_HTTP_URL = "http://127.0.0.1:9090"
 $env:MAGISTRALA_URL = "http://127.0.0.1:9000"
 $env:TB_URL = "http://127.0.0.1:9090"
 if (-not $env:JWT_SECRET) { $env:JWT_SECRET = "sift-local-dev-jwt-secret-key-2026" }
-if (-not $env:INTERNAL_TOKEN) { $env:INTERNAL_TOKEN = "sift-internal-token-dev" }
+if (-not $env:INTERNAL_TOKEN) { $env:INTERNAL_TOKEN = "sift-internal-secret-token" }
 
 $childProcesses = @()
 

@@ -356,7 +356,7 @@ export TB_HTTP_URL="http://127.0.0.1:8080"
 export MAGISTRALA_URL="http://127.0.0.1:9000"
 export TB_URL="http://127.0.0.1:8080"
 export JWT_SECRET="${JWT_SECRET:-sift-local-dev-jwt-secret-key-2026}"
-export INTERNAL_TOKEN="${INTERNAL_TOKEN:-sift-internal-token-dev}"
+export INTERNAL_TOKEN="${INTERNAL_TOKEN:-sift-internal-secret-token}"
 
 echo "  Launching Identity Service on port 3001..."
 node "$ROOT_DIR/services/identity-service/src/index.js" &

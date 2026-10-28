@@ -60,6 +60,7 @@ const char* DEVICE_SECRET      = "YOUR_DEVICE_SECRET";
 const char* TELEMETRY_CHANNEL  = "YOUR_TELEMETRY_CHANNEL_ID";
 const char* COMMAND_CHANNEL    = "YOUR_COMMAND_CHANNEL_ID";
 const char* DEVICE_ID          = "YOUR_DEVICE_ID";
+const char* TENANT_SLUG        = "YOUR_TENANT_SLUG";
 // Device kind: "switch" (sends state + temperature) or "sensor" (temperature only)
 const char* DEVICE_KIND        = "switch";
 // ======================================================================
@@ -183,7 +184,7 @@ void publishHomeAssistantDiscovery() {
   Serial.println("Publishing Home Assistant MQTT auto-discovery configs...");
 
   // 1. Temperature Sensor (published by both "sensor" and "switch" kinds)
-  snprintf(discTopic, sizeof(discTopic), "homeassistant/sensor/%s_temp/config", DEVICE_CLIENT_ID);
+  snprintf(discTopic, sizeof(discTopic), "ha_%s/sensor/%s_temp/config", TENANT_SLUG, DEVICE_CLIENT_ID);
   snprintf(payload, sizeof(payload),
     "{\"name\":\"ESP32 Temperature\",\"unique_id\":\"%s_temp\",\"stat_t\":\"%s\",\"val_tpl\":\"{{ value_json.temperature }}\",\"unit_of_meas\":\"°C\",\"dev_cla\":\"temperature\",\"dev\":{\"ids\":[\"%s\"],\"name\":\"ESP32 IoT Node\",\"mf\":\"CloudNest\"}}",
     DEVICE_CLIENT_ID, TOPIC_TELEMETRY, DEVICE_CLIENT_ID);
@@ -191,7 +192,7 @@ void publishHomeAssistantDiscovery() {
 
   // 2. Switch Entity (only for "switch" kind — sensors don't report state)
   if (strcmp(DEVICE_KIND, "switch") == 0) {
-    snprintf(discTopic, sizeof(discTopic), "homeassistant/switch/%s_switch/config", DEVICE_CLIENT_ID);
+    snprintf(discTopic, sizeof(discTopic), "ha_%s/switch/%s_switch/config", TENANT_SLUG, DEVICE_CLIENT_ID);
     snprintf(payload, sizeof(payload),
       "{\"name\":\"ESP32 Switch\",\"unique_id\":\"%s_switch\",\"stat_t\":\"%s\",\"cmd_t\":\"%s\",\"val_tpl\":\"{{ value_json.state }}\",\"pl_on\":\"ON\",\"pl_off\":\"OFF\",\"stat_on\":\"ON\",\"stat_off\":\"OFF\",\"dev\":{\"ids\":[\"%s\"],\"name\":\"ESP32 IoT Node\",\"mf\":\"CloudNest\"}}",
       DEVICE_CLIENT_ID, TOPIC_TELEMETRY, TOPIC_COMMAND, DEVICE_CLIENT_ID);

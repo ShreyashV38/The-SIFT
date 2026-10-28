@@ -144,7 +144,7 @@ data:
               "broker": "${MQTT_HOST}",
               "port": ${MQTT_PORT},
               "discovery": true,
-              "discovery_prefix": "homeassistant"
+              "discovery_prefix": "ha_{{ .Values.tenant.slug }}"
             },
             "options": {},
             "pref_disable_new_entities": false,

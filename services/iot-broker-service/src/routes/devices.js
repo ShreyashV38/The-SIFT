@@ -268,9 +268,27 @@ router.post('/:slug/devices', requireAuth, requireRole('admin'), async (req, res
   }
 });
 
+// Build the tenant-scoped MQTT discovery prefix for HA auto-discovery isolation.
+// Each tenant's Home Assistant instance listens on `ha_<slug>/#` so it only
+// receives discovery payloads belonging to its own household (FR-06 isolation).
+function getDiscoveryPrefix(tenant) {
+  return `ha_${tenant.slug}`;
+}
+
+// Returns the 3 discovery topic paths for a device (used for publish and unpublish)
+function getDiscoveryTopics(tenant, deviceId) {
+  const prefix = getDiscoveryPrefix(tenant);
+  return [
+    `${prefix}/sensor/${deviceId}_temp/config`,
+    `${prefix}/sensor/${deviceId}_humidity/config`,
+    `${prefix}/switch/${deviceId}_switch/config`,
+  ];
+}
+
 async function publishHADiscovery(tenant, deviceName, deviceId) {
   const mqttUrl = config.mqttUrl;
   const uniqueId = deviceId;
+  const discoveryPrefix = getDiscoveryPrefix(tenant);
   const telemetryTopic = `channels/${tenant.mg_chan_telemetry}/messages`;
   const commandTopic = `channels/${tenant.mg_chan_commands}/messages`;
 
@@ -288,7 +306,7 @@ async function publishHADiscovery(tenant, deviceName, deviceId) {
     client.on('connect', () => {
       const discoveryPayloads = [
         {
-          topic: `homeassistant/sensor/${uniqueId}_temp/config`,
+          topic: `${discoveryPrefix}/sensor/${uniqueId}_temp/config`,
           payload: {
             name: `${deviceName} Temperature`,
             unique_id: `${uniqueId}_temp`,
@@ -305,7 +323,7 @@ async function publishHADiscovery(tenant, deviceName, deviceId) {
           },
         },
         {
-          topic: `homeassistant/sensor/${uniqueId}_humidity/config`,
+          topic: `${discoveryPrefix}/sensor/${uniqueId}_humidity/config`,
           payload: {
             name: `${deviceName} Humidity`,
             unique_id: `${uniqueId}_humidity`,
@@ -322,7 +340,7 @@ async function publishHADiscovery(tenant, deviceName, deviceId) {
           },
         },
         {
-          topic: `homeassistant/switch/${uniqueId}_switch/config`,
+          topic: `${discoveryPrefix}/switch/${uniqueId}_switch/config`,
           payload: {
             name: `${deviceName} Switch`,
             unique_id: `${uniqueId}_switch`,
@@ -349,6 +367,48 @@ async function publishHADiscovery(tenant, deviceName, deviceId) {
           if (err) logger.warn('Discovery publish error', { topic, error: err.message });
           published++;
           if (published === discoveryPayloads.length) {
+            clearTimeout(timeout);
+            client.end();
+            resolve();
+          }
+        });
+      }
+    });
+
+    client.on('error', (err) => {
+      clearTimeout(timeout);
+      client.end(true);
+      reject(err);
+    });
+  });
+}
+
+// Unpublish HA MQTT Discovery payloads by sending empty retained messages.
+// This removes the device entities from Home Assistant's UI when a device is revoked.
+async function unpublishHADiscovery(tenant, deviceId) {
+  const mqttUrl = config.mqttUrl;
+  const topics = getDiscoveryTopics(tenant, deviceId);
+
+  const client = mqtt.connect(mqttUrl, {
+    clientId: `undiscovery-${Date.now()}`,
+    connectTimeout: 5000,
+  });
+
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      client.end(true);
+      reject(new Error('MQTT discovery unpublish timeout'));
+    }, 10000);
+
+    client.on('connect', () => {
+      let published = 0;
+      for (const topic of topics) {
+        // Publishing an empty retained payload clears the retained message
+        // and tells Home Assistant to remove the entity
+        client.publish(topic, '', { retain: true, qos: 1 }, (err) => {
+          if (err) logger.warn('Discovery unpublish error', { topic, error: err.message });
+          published++;
+          if (published === topics.length) {
             clearTimeout(timeout);
             client.end();
             resolve();
@@ -436,6 +496,16 @@ router.delete('/:slug/devices/:deviceId', requireAuth, requireRole('admin'), asy
     }
 
     db.prepare("UPDATE devices SET status = 'revoked' WHERE id = ?").run(deviceId);
+
+    // Unpublish HA MQTT Discovery payloads so the device entities are removed
+    // from Home Assistant's UI (clears the retained config messages)
+    if (device.mg_client_id) {
+      try {
+        await unpublishHADiscovery(tenant, device.mg_client_id);
+      } catch (err) {
+        logger.warn('HA MQTT Discovery unpublish failed (non-critical)', { error: err.message });
+      }
+    }
 
     logger.info('Device revoked', { slug: tenant.slug, deviceId });
 
@@ -584,3 +654,5 @@ module.exports = router;
 module.exports.router = router;
 module.exports.handleInternalDevicesSeen = handleInternalDevicesSeen;
 module.exports.handleInternalObservers = handleInternalObservers;
+module.exports.publishHADiscovery = publishHADiscovery;
+module.exports.unpublishHADiscovery = unpublishHADiscovery;

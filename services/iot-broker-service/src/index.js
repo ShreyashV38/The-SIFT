@@ -10,7 +10,7 @@ const { createServiceLogger, createAuth } = require('@sift/common');
 const config = require('./config');
 const { initDb, getDb } = require('./db');
 const devicesRouter = require('./routes/devices');
-const { handleInternalDevicesSeen, handleInternalObservers } = require('./routes/devices');
+const { handleInternalDevicesSeen, handleInternalObservers, publishHADiscovery, unpublishHADiscovery } = require('./routes/devices');
 const magistrala = require('./services/magistrala');
 const thingsboard = require('./services/thingsboard');
 
@@ -108,4 +108,6 @@ module.exports = {
   thingsboard,
   handleInternalDevicesSeen,
   handleInternalObservers,
+  publishHADiscovery,
+  unpublishHADiscovery,
 };

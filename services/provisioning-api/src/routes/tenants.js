@@ -13,7 +13,7 @@ const { getDb } = require('../db');
 const { requireAuth } = require('../middleware/auth');
 const { requireRole } = require('../middleware/rbac');
 const kubernetes = require('../services/kubernetes');
-const { magistrala } = require('sift-iot-broker-service');
+const { magistrala, unpublishHADiscovery } = require('sift-iot-broker-service');
 const { emailService } = require('sift-identity-service');
 const config = require('../config');
 const logger = require('../logger');
@@ -342,6 +342,20 @@ router.delete('/:slug', requireAuth, requireRole('owner'), async (req, res) => {
       }
     } catch (err) {
       logger.warn('Magistrala cleanup failed', { slug: tenant.slug, error: err.message });
+    }
+
+    // Unpublish all device discovery configs from MQTT so they disappear from HA
+    if (typeof unpublishHADiscovery === 'function') {
+      try {
+        const tenantDevices = db.prepare("SELECT mg_client_id FROM devices WHERE tenant_id = ?").all(req.tenant.id);
+        for (const dev of tenantDevices) {
+          if (dev.mg_client_id) {
+            await unpublishHADiscovery(tenant, dev.mg_client_id).catch(() => {});
+          }
+        }
+      } catch (unpubErr) {
+        logger.warn('Failed to unpublish tenant devices from HA MQTT', { error: unpubErr.message });
+      }
     }
 
     db.prepare("UPDATE tenants SET status = 'deleted', deleted_at = datetime('now') WHERE id = ?").run(req.tenant.id);

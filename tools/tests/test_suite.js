@@ -26,7 +26,7 @@ const assert = require('assert');
 const BASE_URL = process.env.API_URL || 'http://127.0.0.1:3000';
 const INTERNAL_URL = process.env.INTERNAL_API_URL || 'http://127.0.0.1:8081';
 const API_KEY = process.env.PROVISIONING_API_KEY || 'change-me-to-a-random-string';
-const INTERNAL_TOKEN = process.env.INTERNAL_TOKEN || 'sift-internal-secret-token';
+const INTERNAL_TOKEN = process.env.INTERNAL_TOKEN || 'sift-internal-token-dev';
 
 let passed = 0;
 let failed = 0;
